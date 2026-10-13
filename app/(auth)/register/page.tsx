@@ -7,11 +7,7 @@ export const metadata: Metadata = { title: "Créer mon salon" };
 export default function RegisterPage() {
   return (
     <AuthCard
-      title={
-        <>
-          Créez votre <span className="text-gradient italic">espace</span>
-        </>
-      }
+      title={["Créez votre", "espace"]}
       subtitle="Votre salon en ligne en moins de 10 minutes. Gratuit pour démarrer."
     >
       <RegisterForm />

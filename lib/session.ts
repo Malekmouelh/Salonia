@@ -53,6 +53,10 @@ export async function createSession(
   });
 }
 
+export async function readSession() {
+  return decrypt((await cookies()).get(SESSION_COOKIE)?.value);
+}
+
 export async function deleteSession() {
   const cookieStore = await cookies();
   cookieStore.delete(SESSION_COOKIE);

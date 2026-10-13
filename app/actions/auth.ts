@@ -4,7 +4,8 @@ import { createHash, randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { createSession, deleteSession } from "@/lib/session";
+import { logEvent } from "@/lib/audit";
+import { createSession, deleteSession, readSession } from "@/lib/session";
 import {
   ForgotPasswordSchema,
   LoginSchema,
@@ -48,9 +49,8 @@ export async function login(_state: FormState, formData: FormData): Promise<Form
   const key = identifier.toLowerCase();
   const entry = attempts.get(key);
   if (entry && entry.lockedUntil > Date.now()) {
-    const minutes = Math.ceil((entry.lockedUntil - Date.now()) / 60000);
     return {
-      message: `Trop de tentatives. Réessayez dans ${minutes} min.`,
+      message: "Trop de tentatives. Réessayez dans quelques minutes.",
       values: { identifier },
     };
   }
@@ -60,15 +60,24 @@ export async function login(_state: FormState, formData: FormData): Promise<Form
 
   if (!user || !valid) {
     const count = (entry?.count ?? 0) + 1;
-    attempts.set(key, {
-      count: count >= MAX_ATTEMPTS ? 0 : count,
-      lockedUntil: count >= MAX_ATTEMPTS ? Date.now() + LOCK_MS : 0,
-    });
+    const locked = count >= MAX_ATTEMPTS;
+    attempts.set(key, { count: locked ? 0 : count, lockedUntil: locked ? Date.now() + LOCK_MS : 0 });
+    if (user) {
+      await logEvent(locked ? "LOGIN_LOCKED" : "LOGIN_FAILED", {
+        userId: user.id,
+        organizationId: user.organizationId,
+      });
+    }
     return { message: "Identifiant ou mot de passe incorrect.", values: { identifier } };
   }
 
   attempts.delete(key);
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+  await logEvent("LOGIN_SUCCESS", {
+    userId: user.id,
+    organizationId: user.organizationId,
+    detail: isPhone(identifier) ? "phone" : "email",
+  });
   await createSession(
     { userId: user.id, role: user.role, organizationId: user.organizationId },
     formData.get("remember") === "on",
@@ -157,6 +166,7 @@ export async function register(_state: FormState, formData: FormData): Promise<F
     });
   });
 
+  await logEvent("REGISTER", { userId: user.id, organizationId: user.organizationId });
   await createSession({ userId: user.id, role: user.role, organizationId: user.organizationId });
   redirect("/dashboard?welcome=1");
 }
@@ -185,11 +195,14 @@ export async function forgotPassword(_state: FormState, formData: FormData): Pro
     },
   });
 
+  await logEvent("PASSWORD_RESET_REQUEST", { userId: user.id, organizationId: user.organizationId });
+
   const link = `/reset-password?token=${token}`;
   // TODO (F1.6) : envoyer le lien par e-mail / SMS via le service de notifications.
   console.log(`\n🔑 Lien de réinitialisation pour ${user.email ?? user.phone} : http://localhost:3000${link}\n`);
 
-  return process.env.NODE_ENV === "production" ? response : { ...response, devLink: link };
+  const demo = process.env.NODE_ENV !== "production" || process.env.DEMO_MODE === "true";
+  return demo ? { ...response, devLink: link } : response;
 }
 
 export async function resetPassword(_state: FormState, formData: FormData): Promise<FormState> {
@@ -216,10 +229,13 @@ export async function resetPassword(_state: FormState, formData: FormData): Prom
     prisma.passwordResetToken.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
   ]);
 
+  await logEvent("PASSWORD_RESET", { userId: record.userId });
   redirect("/login?reset=1");
 }
 
 export async function logout() {
+  const session = await readSession();
+  if (session) await logEvent("LOGOUT", { userId: session.userId, organizationId: session.organizationId });
   await deleteSession();
   redirect("/login");
 }

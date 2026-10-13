@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useActionState, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { login } from "@/app/actions/auth";
+import { useI18n } from "@/components/i18n/i18n-provider";
 import { Alert, Field, SubmitButton } from "@/components/ui/form";
 import { LockIcon, MailIcon, PhoneIcon } from "@/components/ui/icons";
 import { isPhone } from "@/lib/definitions";
@@ -11,6 +12,7 @@ import { isPhone } from "@/lib/definitions";
 export type DemoAccount = { label: string; identifier: string; password: string };
 
 export function LoginForm({ demoAccounts = [] }: { demoAccounts?: DemoAccount[] }) {
+  const { t } = useI18n();
   const [state, action, pending] = useActionState(login, undefined);
   const searchParams = useSearchParams();
   const [identifier, setIdentifier] = useState("");
@@ -29,9 +31,9 @@ export function LoginForm({ demoAccounts = [] }: { demoAccounts?: DemoAccount[] 
       <input type="hidden" name="next" value={searchParams.get("next") ?? ""} />
 
       {searchParams.get("reset") && !state && (
-        <Alert tone="success">Mot de passe modifié. Vous pouvez vous connecter.</Alert>
+        <Alert tone="success">{t("Mot de passe modifié. Vous pouvez vous connecter.")}</Alert>
       )}
-      {state?.message && <Alert>{state.message}</Alert>}
+      {state?.message && <Alert>{t(state.message)}</Alert>}
 
       <div className="stagger space-y-5">
         <Field
@@ -40,6 +42,7 @@ export function LoginForm({ demoAccounts = [] }: { demoAccounts?: DemoAccount[] 
           icon={looksLikePhone ? PhoneIcon : MailIcon}
           autoComplete="username"
           inputMode={looksLikePhone ? "tel" : "email"}
+          dir="ltr"
           value={identifier}
           onChange={(e) => setIdentifier(e.target.value)}
           error={state?.errors?.identifier}
@@ -55,7 +58,7 @@ export function LoginForm({ demoAccounts = [] }: { demoAccounts?: DemoAccount[] 
           error={state?.errors?.password}
         />
 
-        <div className="flex items-center justify-between text-sm">
+        <div className="flex items-center justify-between gap-3 text-sm">
           <label className="group flex cursor-pointer items-center gap-2.5 text-white/60 select-none">
             <input type="checkbox" name="remember" defaultChecked className="peer sr-only" />
             <span className="grid h-5 w-5 place-items-center rounded-md border border-white/20 bg-white/5 transition peer-checked:border-rose-gold peer-checked:bg-rose-gold peer-focus-visible:ring-2 peer-focus-visible:ring-rose-gold/50 [&>svg]:scale-0 peer-checked:[&>svg]:scale-100">
@@ -63,26 +66,26 @@ export function LoginForm({ demoAccounts = [] }: { demoAccounts?: DemoAccount[] 
                 <path d="m5 12 5 5 9-10" />
               </svg>
             </span>
-            Se souvenir de moi
+            {t("Se souvenir de moi")}
           </label>
           <Link href="/forgot-password" className="text-rose-gold/90 underline-offset-4 transition hover:text-champagne hover:underline">
-            Mot de passe oublié ?
+            {t("Mot de passe oublié ?")}
           </Link>
         </div>
 
-        <SubmitButton pending={pending}>Se connecter</SubmitButton>
+        <SubmitButton pending={pending}>{t("Se connecter")}</SubmitButton>
 
         <p className="text-center text-sm text-white/55">
-          Nouveau salon ?{" "}
+          {t("Nouveau salon ?")}{" "}
           <Link href="/register" className="font-medium text-white underline decoration-rose-gold/60 underline-offset-4 transition hover:decoration-champagne">
-            Créer mon espace gratuitement
+            {t("Créer mon espace gratuitement")}
           </Link>
         </p>
       </div>
 
       {demoAccounts.length > 0 && (
         <div className="animate-fade-up [animation-delay:0.6s] border-t border-white/10 pt-5">
-          <p className="mb-3 text-center text-xs uppercase tracking-[0.18em] text-white/35">Comptes de démonstration</p>
+          <p className="mb-3 text-center text-xs uppercase tracking-[0.18em] text-white/35">{t("Comptes de démonstration")}</p>
           <div className="flex flex-wrap justify-center gap-2">
             {demoAccounts.map((a) => (
               <button
@@ -91,7 +94,7 @@ export function LoginForm({ demoAccounts = [] }: { demoAccounts?: DemoAccount[] 
                 onClick={() => fillDemo(a)}
                 className="rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-xs text-white/70 transition hover:-translate-y-0.5 hover:border-rose-gold/50 hover:bg-rose-gold/10 hover:text-white"
               >
-                {a.label}
+                {t(a.label)}
               </button>
             ))}
           </div>

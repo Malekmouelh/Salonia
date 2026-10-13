@@ -52,8 +52,12 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  centers Center[]
-  users   User[]
+  // Catalogue proposé par l'assistant IA, à importer par le module Catalogue (Membre 3).
+  catalogDraft Json?
+
+  centers    Center[]
+  users      User[]
+  authEvents AuthEvent[]
 }
 
 model Center {
@@ -63,6 +67,8 @@ model Center {
   governorate    Governorate
   address        String?
   phone          String?
+  // Horaires d'ouverture : { "lundi": "09:00-19:00", "dimanche": null, ... }
+  openingHours   Json?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -88,6 +94,7 @@ model User {
   organization Organization?        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   centers      CenterMember[]
   resetTokens  PasswordResetToken[]
+  authEvents   AuthEvent[]
 
   @@index([organizationId])
 }
@@ -114,4 +121,34 @@ model PasswordResetToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+enum AuthEventType {
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  LOGIN_LOCKED
+  LOGOUT
+  REGISTER
+  PASSWORD_RESET_REQUEST
+  PASSWORD_RESET
+  CENTER_CREATED
+  AI_SETUP_APPLIED
+}
+
+// Journal des actions sensibles (cahier des charges §7, Sécurité).
+model AuthEvent {
+  id             String        @id @default(cuid())
+  type           AuthEventType
+  userId         String?
+  organizationId String?
+  ip             String?
+  userAgent      String?
+  detail         String?
+  createdAt      DateTime      @default(now())
+
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([organizationId, createdAt])
 }

@@ -5,9 +5,9 @@ import { LoginForm, type DemoAccount } from "@/components/auth/login-form";
 
 export const metadata: Metadata = { title: "Connexion" };
 
-// Comptes créés par « npm run db:seed », affichés uniquement en développement.
+// Comptes créés par « npm run db:seed », affichés en développement ou si DEMO_MODE=true.
 const DEMO_ACCOUNTS: DemoAccount[] =
-  process.env.NODE_ENV === "production"
+  process.env.NODE_ENV === "production" && process.env.DEMO_MODE !== "true"
     ? []
     : [
         { label: "Propriétaire", identifier: "owner@salonia.tn", password: "Demo1234" },
@@ -20,11 +20,7 @@ const DEMO_ACCOUNTS: DemoAccount[] =
 export default function LoginPage() {
   return (
     <AuthCard
-      title={
-        <>
-          Bon retour <span className="text-gradient italic">parmi nous</span>
-        </>
-      }
+      title={["Bon retour", "parmi nous"]}
       subtitle="Connectez-vous pour retrouver votre salon."
     >
       <Suspense>

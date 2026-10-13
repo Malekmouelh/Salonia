@@ -42,3 +42,6 @@ next-env.d.ts
 
 /app/generated/prisma
 !.env.example
+
+# Réglages locaux
+.claude/
