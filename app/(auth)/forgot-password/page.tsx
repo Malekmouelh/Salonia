@@ -7,11 +7,7 @@ export const metadata: Metadata = { title: "Mot de passe oublié" };
 export default function ForgotPasswordPage() {
   return (
     <AuthCard
-      title={
-        <>
-          Mot de passe <span className="text-gradient italic">oublié ?</span>
-        </>
-      }
+      title={["Mot de passe", "oublié ?"]}
       subtitle="Pas de souci. Indiquez votre e-mail ou téléphone, nous vous envoyons un lien."
     >
       <ForgotPasswordForm />

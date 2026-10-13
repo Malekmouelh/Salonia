@@ -97,6 +97,32 @@
   color-scheme: dark;
 }
 
+/* Arabe : polices dédiées, pas d'italique ni d'espacement des lettres */
+html[lang="ar"] {
+  --font-sans: var(--font-cairo);
+  --font-display: var(--font-amiri);
+}
+html[lang="ar"] .italic {
+  font-style: normal;
+}
+html[lang="ar"] [class*="tracking-"] {
+  letter-spacing: 0;
+}
+
+/* Changement de langue : fondu avec léger flou (View Transitions API) */
+::view-transition-old(root) {
+  animation: vt-out 0.35s ease both;
+}
+::view-transition-new(root) {
+  animation: vt-in 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes vt-out {
+  to { opacity: 0; filter: blur(8px); transform: scale(0.985); }
+}
+@keyframes vt-in {
+  from { opacity: 0; filter: blur(8px); transform: scale(1.015); }
+}
+
 html {
   background: var(--color-ink);
 }

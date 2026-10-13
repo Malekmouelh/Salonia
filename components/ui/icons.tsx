@@ -70,6 +70,21 @@ export const PaletteIcon = (p: P) => (
 export const LogoutIcon = (p: P) => (
   <svg {...base} {...p}><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" /><path d="M10 17l-5-5 5-5M5 12h11" /></svg>
 );
-export const ShieldIcon = (p: P) => (
+export const LayersIcon = (p: P) => (
+  <svg {...base} {...p}><path d="m12 3 9 5-9 5-9-5Z" /><path d="m3 13 9 5 9-5" /></svg>
+);
+export const PlusIcon = (p: P) => (
+  <svg {...base} {...p}><path d="M12 5v14M5 12h14" /></svg>
+);
+export const ClockIcon = (p: P) => (
+  <svg {...base} {...p}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+);
+export const WandIcon = (p: P) => (
+  <svg {...base} {...p}><path d="m4 20 11-11M14 4v3M12.5 5.5h3M19 9v2M18 10h2M18 3v2M17 4h2" /><path d="m15 9 1-1" /></svg>
+);
+export const DeviceIcon = (p: P) => (
+  <svg {...base} {...p}><rect x="6" y="2.5" width="12" height="19" rx="2.5" /><path d="M11 18.5h2" /></svg>
+);
+export const ShieldIcon =(p: P) => (
   <svg {...base} {...p}><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6Z" /><path d="m9 12 2 2 4-4" /></svg>
 );

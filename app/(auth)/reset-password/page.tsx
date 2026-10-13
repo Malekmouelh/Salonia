@@ -8,11 +8,7 @@ export const metadata: Metadata = { title: "Nouveau mot de passe" };
 export default function ResetPasswordPage() {
   return (
     <AuthCard
-      title={
-        <>
-          Nouveau <span className="text-gradient italic">départ</span>
-        </>
-      }
+      title={["Nouveau", "départ"]}
       subtitle="Choisissez un nouveau mot de passe sécurisé."
     >
       <Suspense>
