@@ -1,0 +1,117 @@
+// Module 1 — Noyau, comptes et multi-centres
+// Toutes les données sont rattachées à une organisation (multi-tenant).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  SUPER_ADMIN
+  OWNER
+  MANAGER
+  STAFF
+  CLIENT
+}
+
+enum Governorate {
+  TUNIS
+  ARIANA
+  BEN_AROUS
+  MANOUBA
+  NABEUL
+  ZAGHOUAN
+  BIZERTE
+  BEJA
+  JENDOUBA
+  KEF
+  SILIANA
+  SOUSSE
+  MONASTIR
+  MAHDIA
+  SFAX
+  KAIROUAN
+  KASSERINE
+  SIDI_BOUZID
+  GABES
+  MEDENINE
+  TATAOUINE
+  GAFSA
+  TOZEUR
+  KEBILI
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  centers Center[]
+  users   User[]
+}
+
+model Center {
+  id             String      @id @default(cuid())
+  organizationId String
+  name           String
+  governorate    Governorate
+  address        String?
+  phone          String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members      CenterMember[]
+
+  @@index([organizationId])
+}
+
+model User {
+  id             String    @id @default(cuid())
+  organizationId String?
+  firstName      String
+  lastName       String
+  email          String?   @unique
+  phone          String?   @unique
+  passwordHash   String
+  role           Role      @default(CLIENT)
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization?        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  centers      CenterMember[]
+  resetTokens  PasswordResetToken[]
+
+  @@index([organizationId])
+}
+
+// Un utilisateur (gérant, staff) peut être affecté à un ou plusieurs centres.
+model CenterMember {
+  userId   String
+  centerId String
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  center Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
+
+  @@id([userId, centerId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}

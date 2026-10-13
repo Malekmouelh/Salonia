@@ -1,0 +1,40 @@
+import Link from "next/link";
+import { Aurora } from "@/components/ui/aurora";
+import { ArrowRightIcon, SparkleIcon } from "@/components/ui/icons";
+import { Logo } from "@/components/ui/logo";
+import { BRAND } from "@/lib/brand";
+
+export default function Home() {
+  return (
+    <main className="relative flex min-h-dvh flex-col overflow-hidden">
+      <Aurora />
+      <header className="relative mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-6 sm:px-8 animate-fade-up">
+        <Logo size={38} />
+        <Link href="/login" className="rounded-full border border-white/15 bg-white/5 px-5 py-2.5 text-sm text-white/80 backdrop-blur transition hover:border-rose-gold/50 hover:text-white">
+          Connexion
+        </Link>
+      </header>
+
+      <section className="stagger relative mx-auto flex max-w-3xl flex-1 flex-col items-center justify-center px-4 text-center">
+        <p className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs uppercase tracking-[0.2em] text-champagne/90">
+          <SparkleIcon width={14} height={14} /> Salons de beauté & coiffure
+        </p>
+        <h1 className="mt-6 font-display text-5xl leading-[1.05] text-white sm:text-7xl">
+          {BRAND.tagline.split(", ").slice(0, 2).join(", ")},{" "}
+          <span className="text-gradient italic">développez.</span>
+        </h1>
+        <p className="mt-6 max-w-xl text-lg text-white/60">
+          Réservations, équipe, stock, paiements et IA : un seul outil pour votre salon, de l&apos;établissement unique à la marque multi-centres.
+        </p>
+        <div className="mt-10 flex flex-col gap-3 sm:flex-row">
+          <Link href="/register" className="btn-shine group flex h-14 items-center justify-center gap-2 rounded-2xl px-8 font-semibold text-plum-950">
+            Créer mon salon <ArrowRightIcon className="transition-transform group-hover:translate-x-1" />
+          </Link>
+          <Link href="/login" className="flex h-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-8 text-white/80 backdrop-blur transition hover:bg-white/10 hover:text-white">
+            J&apos;ai déjà un compte
+          </Link>
+        </div>
+      </section>
+    </main>
+  );
+}
