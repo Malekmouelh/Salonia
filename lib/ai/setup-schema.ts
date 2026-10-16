@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { GOVERNORATES } from "@/lib/definitions";
-import type { Governorate } from "@/app/generated/prisma/enums";
+import type { Governorate } from "@/lib/enums";
 
 const governorate = z.enum(GOVERNORATES.map((g) => g.value) as [Governorate, ...Governorate[]]);
 const slot = z.string().nullable().describe('Plage "HH:MM-HH:MM", ou null si fermé');

@@ -6,6 +6,7 @@ import { CenterSwitcher } from "@/components/dashboard/center-switcher";
 import { Confetti } from "@/components/dashboard/confetti";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { SecurityLog } from "@/components/dashboard/security-log";
+import { MyBookings, TodayPanel } from "@/components/dashboard/today";
 import { T } from "@/components/i18n/i18n-provider";
 import { Aurora } from "@/components/ui/aurora";
 import {
@@ -22,9 +23,10 @@ import {
 } from "@/components/ui/icons";
 import { describeDevice } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/dal";
+import { getMyBookings, getTodayOverview } from "@/lib/data/bookings";
 import { getSecurityEvents, getVisibleCenters, type VisibleCenter } from "@/lib/data/organization";
 import { ROLE_LABELS, governorateLabel } from "@/lib/definitions";
-import type { Role } from "@/app/generated/prisma/enums";
+import type { Role } from "@/lib/enums";
 
 export const metadata: Metadata = { title: "Tableau de bord" };
 
@@ -37,10 +39,12 @@ const PERMISSIONS: Record<Role, string[]> = {
   CLIENT: ["Consulter la vitrine", "Réserver et payer", "Voir son historique"],
 };
 
+// Modules du cahier des charges (version Salonia) : le socle et le Module 3 sont livrés.
 const MODULES = [
-  { name: "Noyau & multi-centres", icon: ShieldIcon, status: "Actif", color: "from-blush to-rose-gold" },
+  { name: "Socle : comptes & multi-centres", icon: ShieldIcon, status: "Actif", color: "from-blush to-rose-gold" },
   { name: "Vitrine & personnalisation", icon: PaletteIcon, status: "Bientôt", color: "from-rose-gold to-champagne" },
-  { name: "Calendrier & réservations", icon: CalendarIcon, status: "Bientôt", color: "from-champagne to-gold" },
+  { name: "Catalogue & packs", icon: SparkleIcon, status: "Bientôt", color: "from-[#9fd8cb] to-champagne" },
+  { name: "Calendrier & réservations", icon: CalendarIcon, status: "Actif", color: "from-champagne to-gold" },
   { name: "Équipe", icon: UsersIcon, status: "Bientôt", color: "from-[#c9a0dc] to-blush" },
   { name: "Matériel & stock", icon: BoxIcon, status: "Bientôt", color: "from-gold to-rose-gold" },
   { name: "Paiements & factures", icon: WalletIcon, status: "Bientôt", color: "from-blush to-[#c9a0dc]" },
@@ -66,7 +70,14 @@ export default function DashboardPage({ searchParams }: PageProps<"/dashboard">)
 
 async function Dashboard({ searchParams }: { searchParams: PageProps<"/dashboard">["searchParams"] }) {
   const user = await getCurrentUser();
-  const [centers, events, params] = await Promise.all([getVisibleCenters(user), getSecurityEvents(user), searchParams]);
+  const [centers, events, params, today, myBookings] = await Promise.all([
+    getVisibleCenters(user),
+    getSecurityEvents(user),
+    searchParams,
+    user.role === "CLIENT" ? Promise.resolve(null) : getTodayOverview(user),
+    user.role === "CLIENT" ? getMyBookings(user) : Promise.resolve([]),
+  ]);
+  const bookingUrl = user.organization ? `/reserver/${user.organization.slug}` : null;
   const isOwner = user.role === "OWNER";
   const selectedId = typeof params.center === "string" ? params.center : null;
   const selected = centers.find((c) => c.id === selectedId) ?? null;
@@ -126,6 +137,9 @@ async function Dashboard({ searchParams }: { searchParams: PageProps<"/dashboard
           </ul>
         </div>
       </section>
+
+      {today && <TodayPanel overview={today} bookingUrl={bookingUrl} />}
+      {user.role === "CLIENT" && <MyBookings bookings={myBookings} bookingUrl={bookingUrl} />}
 
       {(centers.length > 0 || isOwner) && (
         <section className="mt-10">
@@ -196,7 +210,7 @@ async function Dashboard({ searchParams }: { searchParams: PageProps<"/dashboard
               <div key={name} className="glass group relative overflow-hidden rounded-3xl p-4 transition duration-300 hover:-translate-y-1">
                 <div className={`absolute -end-10 -top-10 h-28 w-28 rounded-full bg-gradient-to-br ${color} opacity-10 blur-2xl transition-opacity duration-500 group-hover:opacity-30`} />
                 <span className={`grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br ${color} text-plum-950`}><Icon width={18} height={18} /></span>
-                <p className="mt-3 text-[11px] text-white/40"><T>Module</T> {i + 1}</p>
+                <p className="mt-3 text-[11px] text-white/40">{i === 0 ? <T>Socle</T> : <><T>Module</T> {i}</>}</p>
                 <p className="text-sm font-medium leading-snug text-white"><T>{name}</T></p>
                 <span className={`mt-2 inline-block rounded-full px-2 py-0.5 text-[11px] ${status === "Actif" ? "bg-emerald-400/15 text-emerald-300" : "bg-white/5 text-white/50"}`}>
                   <T>{status}</T>

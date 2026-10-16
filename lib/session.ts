@@ -1,7 +1,7 @@
 import "server-only";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
-import type { Role } from "@/app/generated/prisma/enums";
+import type { Role } from "@/lib/enums";
 
 export const SESSION_COOKIE = "salon_session";
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;

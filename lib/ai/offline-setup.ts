@@ -1,4 +1,4 @@
-import type { Governorate } from "@/app/generated/prisma/enums";
+import type { Governorate } from "@/lib/enums";
 import { AR } from "@/lib/i18n-ar";
 import type { SetupProposal } from "./setup-schema";
 

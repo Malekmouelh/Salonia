@@ -7,7 +7,8 @@ import { offlineSetup } from "@/lib/ai/offline-setup";
 import { SetupProposalSchema, type ProposalSource, type SetupProposal } from "@/lib/ai/setup-schema";
 import { logEvent } from "@/lib/audit";
 import { requireRole } from "@/lib/dal";
-import { prisma } from "@/lib/prisma";
+import { connectDB } from "@/lib/db";
+import { Center, Organization, User } from "@/lib/models/core";
 
 export type AssistantState =
   | { proposal?: SetupProposal; source?: ProposalSource; error?: string; description?: string }
@@ -97,32 +98,30 @@ export async function applySetup(formData: FormData) {
   const organizationId = user.organization.id;
   const existing = new Set(user.organization.centers.map((c) => c.name.toLowerCase()));
 
-  await prisma.$transaction(async (tx) => {
-    for (const c of centers) {
-      if (existing.has(c.name.toLowerCase())) {
-        // Centre déjà présent : on met seulement à jour ses horaires.
-        await tx.center.updateMany({
-          where: { organizationId, name: { equals: c.name, mode: "insensitive" } },
-          data: { openingHours: c.openingHours, governorate: c.governorate },
-        });
-      } else {
-        await tx.center.create({
-          data: {
-            organizationId,
-            name: c.name,
-            governorate: c.governorate,
-            openingHours: c.openingHours,
-            members: { create: { userId: user.id } },
-          },
-        });
-      }
+  await connectDB();
+  for (const c of centers) {
+    const match = user.organization.centers.find((x) => x.name.toLowerCase() === c.name.toLowerCase());
+    if (match && existing.has(c.name.toLowerCase())) {
+      // Centre déjà présent : on met seulement à jour ses horaires.
+      await Center.updateOne(
+        { _id: match.id, organizationId },
+        { openingHours: c.openingHours, governorate: c.governorate },
+      );
+    } else {
+      const center = await Center.create({
+        organizationId,
+        name: c.name,
+        governorate: c.governorate,
+        openingHours: c.openingHours,
+      });
+      await User.updateOne({ _id: user.id }, { $addToSet: { centerIds: center._id } });
     }
-    // Le catalogue et l'équipe type seront importés par les modules Catalogue (3) et Équipe (4).
-    await tx.organization.update({
-      where: { id: organizationId },
-      data: { catalogDraft: { services, team, createdAt: new Date().toISOString() } },
-    });
-  });
+  }
+  // Le catalogue et l'équipe type seront importés par les modules Catalogue (2) et Équipe (4).
+  await Organization.updateOne(
+    { _id: organizationId },
+    { catalogDraft: { services, team, createdAt: new Date().toISOString() } },
+  );
 
   await logEvent("AI_SETUP_APPLIED", {
     userId: user.id,
