@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Governorate } from "@/app/generated/prisma/enums";
+import type { Governorate } from "@/lib/enums";
 
 export const GOVERNORATES: { value: Governorate; label: string }[] = [
   { value: "TUNIS", label: "Tunis" },

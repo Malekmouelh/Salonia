@@ -2,7 +2,7 @@
 
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { DeviceIcon } from "@/components/ui/icons";
-import type { AuthEventType } from "@/app/generated/prisma/enums";
+import type { AuthEventType } from "@/lib/enums";
 
 export type SecurityEvent = {
   id: string;
@@ -23,6 +23,10 @@ const EVENTS: Record<AuthEventType, { label: string; tone: string }> = {
   PASSWORD_RESET: { label: "Mot de passe modifié", tone: "bg-sky-400" },
   CENTER_CREATED: { label: "Centre ajouté", tone: "bg-rose-gold" },
   AI_SETUP_APPLIED: { label: "Configuration IA appliquée", tone: "bg-[#c9a0dc]" },
+  BOOKING_CREATED: { label: "Rendez-vous créé", tone: "bg-emerald-400" },
+  BOOKING_CANCELLED: { label: "Rendez-vous annulé", tone: "bg-red-400" },
+  BOOKING_RESCHEDULED: { label: "Rendez-vous reporté", tone: "bg-amber-400" },
+  REMINDERS_SENT: { label: "Rappels envoyés", tone: "bg-sky-400" },
 };
 
 // Fuseau et langue explicites : même rendu côté serveur et navigateur.

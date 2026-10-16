@@ -1,0 +1,4 @@
+# Fins de ligne LF pour toute l'équipe (Windows, macOS, Linux)
+* text=auto eol=lf
+*.ico binary
+*.png binary

@@ -3,9 +3,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
 import { logEvent } from "@/lib/audit";
-import { createSession, deleteSession, readSession } from "@/lib/session";
+import { connectDB } from "@/lib/db";
 import {
   ForgotPasswordSchema,
   LoginSchema,
@@ -15,6 +14,9 @@ import {
   normalizePhone,
   type FormState,
 } from "@/lib/definitions";
+import type { Role } from "@/lib/enums";
+import { Center, Organization, PasswordResetToken, User } from "@/lib/models/core";
+import { createSession, deleteSession, readSession } from "@/lib/session";
 
 const RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
@@ -27,11 +29,17 @@ const DUMMY_HASH = bcrypt.hashSync("dummy-password-for-timing", 10);
 // Limitation simple des tentatives (mémoire du serveur, suffisant pour le MVP).
 const attempts = new Map<string, { count: number; lockedUntil: number }>();
 
-function findByIdentifier(identifier: string) {
+async function findByIdentifier(identifier: string) {
+  await connectDB();
   return isPhone(identifier)
-    ? prisma.user.findUnique({ where: { phone: normalizePhone(identifier) } })
-    : prisma.user.findUnique({ where: { email: identifier.toLowerCase() } });
+    ? User.findOne({ phone: normalizePhone(identifier) }).lean()
+    : User.findOne({ email: identifier.toLowerCase() }).lean();
 }
+
+const ids = (user: { _id: unknown; organizationId?: unknown }) => ({
+  userId: String(user._id),
+  organizationId: user.organizationId ? String(user.organizationId) : null,
+});
 
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -62,26 +70,14 @@ export async function login(_state: FormState, formData: FormData): Promise<Form
     const count = (entry?.count ?? 0) + 1;
     const locked = count >= MAX_ATTEMPTS;
     attempts.set(key, { count: locked ? 0 : count, lockedUntil: locked ? Date.now() + LOCK_MS : 0 });
-    if (user) {
-      await logEvent(locked ? "LOGIN_LOCKED" : "LOGIN_FAILED", {
-        userId: user.id,
-        organizationId: user.organizationId,
-      });
-    }
+    if (user) await logEvent(locked ? "LOGIN_LOCKED" : "LOGIN_FAILED", ids(user));
     return { message: "Identifiant ou mot de passe incorrect.", values: { identifier } };
   }
 
   attempts.delete(key);
-  await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-  await logEvent("LOGIN_SUCCESS", {
-    userId: user.id,
-    organizationId: user.organizationId,
-    detail: isPhone(identifier) ? "phone" : "email",
-  });
-  await createSession(
-    { userId: user.id, role: user.role, organizationId: user.organizationId },
-    formData.get("remember") === "on",
-  );
+  await User.updateOne({ _id: user._id }, { lastLoginAt: new Date() });
+  await logEvent("LOGIN_SUCCESS", { ...ids(user), detail: isPhone(identifier) ? "phone" : "email" });
+  await createSession({ ...ids(user), role: user.role as Role }, formData.get("remember") === "on");
 
   // Retour à la page demandée avant la connexion (chemins internes uniquement).
   const next = String(formData.get("next") ?? "");
@@ -89,19 +85,21 @@ export async function login(_state: FormState, formData: FormData): Promise<Form
 }
 
 function slugify(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 40) || "salon";
+  return (
+    value
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 40) || "salon"
+  );
 }
 
 async function uniqueSlug(name: string) {
   const base = slugify(name);
   let slug = base;
-  for (let i = 2; await prisma.organization.findUnique({ where: { slug } }); i++) {
+  for (let i = 2; await Organization.exists({ slug }); i++) {
     slug = `${base}-${i}`;
   }
   return slug;
@@ -124,10 +122,10 @@ export async function register(_state: FormState, formData: FormData): Promise<F
   const data = parsed.data;
   const phone = data.phone ? normalizePhone(data.phone) : null;
 
-  const existing = await prisma.user.findFirst({
-    where: { OR: [{ email: data.email }, ...(phone ? [{ phone }] : [])] },
-    select: { email: true },
-  });
+  await connectDB();
+  const existing = await User.findOne({ $or: [{ email: data.email }, ...(phone ? [{ phone }] : [])] })
+    .select("email")
+    .lean();
   if (existing) {
     return {
       errors:
@@ -142,32 +140,26 @@ export async function register(_state: FormState, formData: FormData): Promise<F
   const slug = await uniqueSlug(data.salonName);
 
   // Le propriétaire, sa marque et son premier centre sont créés ensemble.
-  const user = await prisma.$transaction(async (tx) => {
-    const organization = await tx.organization.create({
-      data: {
-        name: data.salonName,
-        slug,
-        centers: { create: { name: data.salonName, governorate: data.governorate } },
-      },
-      include: { centers: true },
-    });
-    return tx.user.create({
-      data: {
-        firstName: data.firstName,
-        lastName: data.lastName,
-        email: data.email,
-        phone,
-        passwordHash,
-        role: "OWNER",
-        organizationId: organization.id,
-        lastLoginAt: new Date(),
-        centers: { create: { centerId: organization.centers[0].id } },
-      },
-    });
+  const organization = await Organization.create({ name: data.salonName, slug });
+  const center = await Center.create({
+    organizationId: organization._id,
+    name: data.salonName,
+    governorate: data.governorate,
+  });
+  const user = await User.create({
+    firstName: data.firstName,
+    lastName: data.lastName,
+    email: data.email,
+    phone: phone ?? undefined,
+    passwordHash,
+    role: "OWNER",
+    organizationId: organization._id,
+    centerIds: [center._id],
+    lastLoginAt: new Date(),
   });
 
-  await logEvent("REGISTER", { userId: user.id, organizationId: user.organizationId });
-  await createSession({ userId: user.id, role: user.role, organizationId: user.organizationId });
+  await logEvent("REGISTER", ids(user));
+  await createSession({ ...ids(user), role: "OWNER" });
   redirect("/dashboard?welcome=1");
 }
 
@@ -187,18 +179,16 @@ export async function forgotPassword(_state: FormState, formData: FormData): Pro
   if (!user) return response;
 
   const token = randomBytes(32).toString("base64url");
-  await prisma.passwordResetToken.create({
-    data: {
-      userId: user.id,
-      tokenHash: hashToken(token),
-      expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
-    },
+  await PasswordResetToken.create({
+    userId: user._id,
+    tokenHash: hashToken(token),
+    expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
   });
 
-  await logEvent("PASSWORD_RESET_REQUEST", { userId: user.id, organizationId: user.organizationId });
+  await logEvent("PASSWORD_RESET_REQUEST", ids(user));
 
   const link = `/reset-password?token=${token}`;
-  // TODO (F1.6) : envoyer le lien par e-mail / SMS via le service de notifications.
+  // TODO (F0.6) : envoyer le lien par e-mail / SMS via le service de notifications.
   console.log(`\n🔑 Lien de réinitialisation pour ${user.email ?? user.phone} : http://localhost:3000${link}\n`);
 
   const demo = process.env.NODE_ENV !== "production" || process.env.DEMO_MODE === "true";
@@ -216,20 +206,19 @@ export async function resetPassword(_state: FormState, formData: FormData): Prom
     return { errors: parsed.error.flatten().fieldErrors };
   }
 
-  const record = await prisma.passwordResetToken.findUnique({
-    where: { tokenHash: hashToken(parsed.data.token) },
-  });
-  if (!record || record.usedAt || record.expiresAt < new Date()) {
-    return { message: "Ce lien est invalide ou a expiré. Demandez-en un nouveau." };
-  }
+  const invalid = { message: "Ce lien est invalide ou a expiré. Demandez-en un nouveau." };
+  await connectDB();
+  const record = await PasswordResetToken.findOne({ tokenHash: hashToken(parsed.data.token) }).lean();
+  if (!record || record.usedAt || record.expiresAt < new Date()) return invalid;
+
+  // Le jeton est marqué utilisé d'abord : un double clic sur le lien ne peut pas le réutiliser.
+  const used = await PasswordResetToken.updateOne({ _id: record._id, usedAt: null }, { usedAt: new Date() });
+  if (used.modifiedCount === 0) return invalid;
 
   const passwordHash = await bcrypt.hash(parsed.data.password, 12);
-  await prisma.$transaction([
-    prisma.user.update({ where: { id: record.userId }, data: { passwordHash } }),
-    prisma.passwordResetToken.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
-  ]);
+  await User.updateOne({ _id: record.userId }, { passwordHash });
 
-  await logEvent("PASSWORD_RESET", { userId: record.userId });
+  await logEvent("PASSWORD_RESET", { userId: String(record.userId) });
   redirect("/login?reset=1");
 }
 

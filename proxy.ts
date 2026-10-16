@@ -15,7 +15,7 @@ export default async function proxy(req: NextRequest) {
 
   if (isProtected && !session) {
     const url = new URL("/login", req.nextUrl);
-    url.searchParams.set("next", path);
+    url.searchParams.set("next", path + req.nextUrl.search);
     return NextResponse.redirect(url);
   }
   if (isAuthPage && session) {
