@@ -39,7 +39,7 @@ const PERMISSIONS: Record<Role, string[]> = {
   CLIENT: ["Consulter la vitrine", "Réserver et payer", "Voir son historique"],
 };
 
-// Modules du cahier des charges (version Salonia) : le socle et le Module 3 sont livrés.
+// Modules du cahier des charges (version Salonia) : le socle et les Modules 3 et 6 sont livrés.
 const MODULES = [
   { name: "Socle : comptes & multi-centres", icon: ShieldIcon, status: "Actif", color: "from-blush to-rose-gold" },
   { name: "Vitrine & personnalisation", icon: PaletteIcon, status: "Bientôt", color: "from-rose-gold to-champagne" },
@@ -47,7 +47,7 @@ const MODULES = [
   { name: "Calendrier & réservations", icon: CalendarIcon, status: "Actif", color: "from-champagne to-gold" },
   { name: "Équipe", icon: UsersIcon, status: "Bientôt", color: "from-[#c9a0dc] to-blush" },
   { name: "Matériel & stock", icon: BoxIcon, status: "Bientôt", color: "from-gold to-rose-gold" },
-  { name: "Paiements & factures", icon: WalletIcon, status: "Bientôt", color: "from-blush to-[#c9a0dc]" },
+  { name: "Paiements & factures", icon: WalletIcon, status: "Actif", color: "from-blush to-[#c9a0dc]" },
 ];
 
 const DAYS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
