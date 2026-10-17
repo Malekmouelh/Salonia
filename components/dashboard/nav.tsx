@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useI18n } from "@/components/i18n/i18n-provider";
-import { CalendarIcon, ClockIcon, LayersIcon, UsersIcon, WandIcon } from "@/components/ui/icons";
+import { CalendarIcon, ClockIcon, LayersIcon, UsersIcon, WalletIcon, WandIcon } from "@/components/ui/icons";
 import type { Role } from "@/lib/enums";
 
 const LINKS = [
@@ -11,6 +11,8 @@ const LINKS = [
   { href: "/dashboard/calendar", label: "Calendrier", icon: CalendarIcon, roles: ["OWNER", "MANAGER", "STAFF"] },
   { href: "/dashboard/clients", label: "Clients", icon: UsersIcon, roles: ["OWNER", "MANAGER", "STAFF"] },
   { href: "/dashboard/availability", label: "Disponibilités", icon: ClockIcon, roles: ["OWNER", "MANAGER"] },
+  { href: "/dashboard/finances", label: "Finances", icon: WalletIcon, roles: ["OWNER", "MANAGER"] },
+  { href: "/dashboard/finances/caisse", label: "Caisse", icon: WalletIcon, roles: ["STAFF"] },
   { href: "/dashboard/assistant", label: "Assistant IA", icon: WandIcon, roles: ["OWNER"] },
 ] as const;
 
