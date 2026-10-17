@@ -1,5 +1,6 @@
 import "server-only";
 import { Types } from "mongoose";
+import { connection } from "next/server";
 import { addDays, dayKey, parseDayKey, startOfLocalDay } from "@/lib/booking/time";
 import { connectDB } from "@/lib/db";
 import type { CurrentUser } from "@/lib/dal";
@@ -263,6 +264,8 @@ export async function listPayments(user: CurrentUser, params: { centerIds: strin
 
 // F6.2 — Page publique de paiement : résumé du lien (sans donnée sensible du salon).
 export async function getPaymentLink(token: string) {
+  // Le lien expire : lecture de l'heure actuelle, donc rendu à la requête.
+  await connection();
   if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return null;
   await connectDB();
   const payment = await Payment.findOne({ gatewayTokenHash: hashPaymentToken(token) }).lean();
