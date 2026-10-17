@@ -10,6 +10,8 @@ import { addDays, addMinutes, fromLocal, hhmmToMinutes, toLocal, WEEKDAYS, type 
 import { AvailabilityBlock, Booking, Customer, Notification, WaitlistEntry } from "../lib/models/booking";
 import { Pack, Service } from "../lib/models/catalog";
 import { AuthEvent, Center, Organization, PasswordResetToken, User } from "../lib/models/core";
+import { Expense, Invoice, Payment } from "../lib/models/finance";
+import { seedFinance } from "./seed-finance";
 
 // Générateur pseudo-aléatoire reproductible : le même jeu de données à chaque exécution.
 let seed = 20261016;
@@ -43,6 +45,7 @@ async function main() {
       Center.deleteMany(filter), Service.deleteMany(filter), Pack.deleteMany(filter), Customer.deleteMany(filter),
       Booking.deleteMany(filter), AvailabilityBlock.deleteMany(filter), WaitlistEntry.deleteMany(filter),
       Notification.deleteMany(filter), AuthEvent.deleteMany(filter),
+      Payment.deleteMany(filter), Invoice.deleteMany(filter), Expense.deleteMany(filter),
     ]);
     await Organization.deleteOne({ _id: old._id });
   }
@@ -218,6 +221,9 @@ async function main() {
       desiredDate: addDays(today, d),
     })),
   );
+
+  // ── Module 6 : paiements, factures et dépenses ──
+  await seedFinance(org._id);
 
   const past = bookings.filter((b) => (b.end as Date) < now);
   const noShows = past.filter((b) => b.status === "NO_SHOW").length;

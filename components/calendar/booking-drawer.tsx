@@ -115,9 +115,20 @@ export function BookingDrawer({
             </p>
             {!b.customer.remindersConsent && <p className="mt-1 text-xs text-amber-300">{t("Rappels refusés")}</p>}
           </div>
-          <Link href={`/dashboard/clients/${b.customer.id}`} className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/70 transition hover:border-rose-gold/40 hover:text-white">
-            {t("Fiche client")}
-          </Link>
+          <div className="flex flex-col gap-2">
+            <Link href={`/dashboard/clients/${b.customer.id}`} className="rounded-xl border border-white/10 px-3 py-2 text-center text-xs text-white/70 transition hover:border-rose-gold/40 hover:text-white">
+              {t("Fiche client")}
+            </Link>
+            {/* Module 6 : encaissement, acompte ou lien de paiement depuis la caisse du centre. */}
+            {b.status !== "CANCELLED" && (
+              <Link
+                href={`/dashboard/finances/caisse?center=${data.center.id}&day=${dayKey(new Date(b.start))}`}
+                className="rounded-xl border border-white/10 px-3 py-2 text-center text-xs text-white/70 transition hover:border-rose-gold/40 hover:text-white"
+              >
+                {t("Encaisser")}
+              </Link>
+            )}
+          </div>
         </div>
 
         {mode === "view" && (
