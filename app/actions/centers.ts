@@ -14,6 +14,7 @@ const CenterSchema = z.object({
   governorate: z.enum(GOVERNORATES.map((g) => g.value) as [Governorate, ...Governorate[]], {
     error: "Choisissez un gouvernorat.",
   }),
+  photos: z.array(z.string()).default([]),
 });
 
 // F0.2 : le propriétaire ajoute un centre rattaché à un gouvernorat.
@@ -21,9 +22,20 @@ export async function createCenter(_state: FormState, formData: FormData): Promi
   const user = await requireRole("OWNER");
   if (!user.organization) return { message: "Aucune organisation associée à ce compte." };
 
+  let photos: string[] = [];
+  const rawPhotos = formData.get("photos");
+  if (typeof rawPhotos === "string" && rawPhotos.trim().length > 0) {
+    try {
+      photos = JSON.parse(rawPhotos);
+    } catch {
+      photos = [];
+    }
+  }
+
   const parsed = CenterSchema.safeParse({
     name: formData.get("name"),
     governorate: formData.get("governorate"),
+    photos,
   });
   if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
 
@@ -39,4 +51,24 @@ export async function createCenter(_state: FormState, formData: FormData): Promi
   updateTag(`salon:${user.organization.slug}`);
   revalidatePath("/dashboard");
   return { success: "Centre ajouté." };
+}
+
+export async function updateCenterPhotos(centerId: string, photos: string[]): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const user = await requireRole("OWNER");
+    if (!user.organization) return { ok: false, message: "Aucune organisation." };
+
+    await connectDB();
+    const res = await Center.updateOne(
+      { _id: centerId, organizationId: user.organization.id },
+      { $set: { photos } }
+    );
+    if (!res.matchedCount) return { ok: false, message: "Centre introuvable." };
+
+    updateTag(`salon:${user.organization.slug}`);
+    revalidatePath("/dashboard");
+    return { ok: true, message: "Photos du centre mises à jour avec succès." };
+  } catch (err: any) {
+    return { ok: false, message: err?.message || "Erreur lors de la mise à jour des photos." };
+  }
 }

@@ -165,16 +165,32 @@ function StepServices({ salon, choice, setChoice }: { salon: PublicSalon; choice
       {salon.centers.length > 1 && (
         <div>
           <h2 className="mb-3 font-display text-2xl text-white">{t("Choisissez votre salon")}</h2>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
             {salon.centers.map((c) => (
               <button
                 key={c.id}
                 type="button"
                 onClick={() => setChoice({ ...choice, centerId: c.id, staffId: null })}
-                className={`rounded-2xl border p-4 text-start transition ${choice.centerId === c.id ? "border-rose-gold bg-rose-gold/10" : "border-white/10 bg-white/[0.03] hover:border-white/25"}`}
+                className={`group overflow-hidden rounded-2xl border text-start transition ${choice.centerId === c.id ? "border-rose-gold bg-rose-gold/10 shadow-lg shadow-rose-gold/10" : "border-white/10 bg-white/[0.03] hover:border-white/25"}`}
               >
-                <p className="text-sm font-medium text-white">{c.name}</p>
-                <p className="text-xs text-white/50">{t(governorateLabel(c.governorate))}</p>
+                {c.photos && c.photos.length > 0 && (
+                  <div className="h-28 w-full overflow-hidden bg-white/5">
+                    <img
+                      src={c.photos[0]}
+                      alt={c.name}
+                      className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                    />
+                  </div>
+                )}
+                <div className="p-4">
+                  <p className="text-sm font-medium text-white">{c.name}</p>
+                  <p className="text-xs text-white/50">{t(governorateLabel(c.governorate))}</p>
+                  {c.photos && c.photos.length > 1 && (
+                    <span className="mt-2 inline-block rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-white/60">
+                      {c.photos.length} photos
+                    </span>
+                  )}
+                </div>
               </button>
             ))}
           </div>
@@ -192,14 +208,23 @@ function StepServices({ salon, choice, setChoice }: { salon: PublicSalon; choice
                   key={p.id}
                   type="button"
                   onClick={() => setChoice({ ...choice, packId: active ? null : p.id, serviceIds: [] })}
-                  className={`relative overflow-hidden rounded-2xl border p-4 text-start transition ${active ? "border-champagne bg-champagne/10" : "border-champagne/20 bg-white/[0.03] hover:border-champagne/50"}`}
+                  className={`group relative overflow-hidden rounded-2xl border p-4 text-start transition ${active ? "border-champagne bg-champagne/10" : "border-champagne/20 bg-white/[0.03] hover:border-champagne/50"}`}
                 >
                   <div className="absolute -end-6 -top-6 h-20 w-20 rounded-full bg-champagne/10 blur-xl" />
-                  <p className="font-medium text-white">✨ {p.name}</p>
-                  <p className="mt-1 text-xs text-white/50">{p.serviceNames.join(" · ")}</p>
-                  <p className="mt-2 text-sm text-champagne">
-                    {fmtMoney(p.priceTnd, lang)} · {fmtDuration(p.durationMinutes)}
-                  </p>
+                  <div className="flex gap-3">
+                    {p.photos && p.photos.length > 0 && (
+                      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-white/10">
+                        <img src={p.photos[0]} alt={p.name} className="h-full w-full object-cover transition group-hover:scale-105" />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-white">✨ {p.name}</p>
+                      <p className="mt-1 line-clamp-1 text-xs text-white/50">{p.serviceNames.join(" · ")}</p>
+                      <p className="mt-2 text-sm font-semibold text-champagne">
+                        {fmtMoney(p.priceTnd, lang)} · {fmtDuration(p.durationMinutes)}
+                      </p>
+                    </div>
+                  </div>
                 </button>
               );
             })}
@@ -225,14 +250,24 @@ function StepServices({ salon, choice, setChoice }: { salon: PublicSalon; choice
                 type="button"
                 disabled={!active && choice.serviceIds.length >= 6}
                 onClick={() => setChoice({ ...choice, packId: null, serviceIds: active ? choice.serviceIds.filter((x) => x !== s.id) : [...choice.serviceIds, s.id] })}
-                className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3.5 text-start transition disabled:cursor-not-allowed disabled:opacity-40 ${active ? "border-rose-gold bg-rose-gold/10" : "border-white/10 bg-white/[0.03] hover:border-white/25"}`}
+                className={`group flex items-center justify-between gap-3 rounded-2xl border px-4 py-3.5 text-start transition disabled:cursor-not-allowed disabled:opacity-40 ${active ? "border-rose-gold bg-rose-gold/10" : "border-white/10 bg-white/[0.03] hover:border-white/25"}`}
               >
-                <div>
-                  <p className="text-white">{s.name}</p>
-                  <p className="text-xs text-white/50">{fmtDuration(s.durationMinutes)}</p>
+                <div className="flex items-center gap-3 min-w-0">
+                  {s.photos && s.photos.length > 0 && (
+                    <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-white/10">
+                      <img src={s.photos[0]} alt={s.name} className="h-full w-full object-cover transition group-hover:scale-105" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-white font-medium">{s.name}</p>
+                    {s.description && (
+                      <p className="line-clamp-1 text-xs text-white/40">{s.description}</p>
+                    )}
+                    <p className="text-xs text-white/50">{fmtDuration(s.durationMinutes)}</p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-white">{fmtMoney(s.priceTnd, lang)}</span>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="text-sm font-semibold text-white">{fmtMoney(s.priceTnd, lang)}</span>
                   <span className={`grid h-6 w-6 place-items-center rounded-full border transition ${active ? "border-rose-gold bg-rose-gold text-plum-950" : "border-white/20"}`}>
                     {active && <CheckIcon width={14} height={14} />}
                   </span>

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { AddCenter } from "@/components/dashboard/add-center";
 import { CenterSwitcher } from "@/components/dashboard/center-switcher";
+import { CenterPhotosGallery } from "@/components/dashboard/center-photos-gallery";
 import { Confetti } from "@/components/dashboard/confetti";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { SecurityLog } from "@/components/dashboard/security-log";
@@ -161,7 +162,7 @@ async function Dashboard({ searchParams }: { searchParams: PageProps<"/dashboard
                     key={c.id}
                     href={isOwner ? `/dashboard?center=${c.id}` : "#"}
                     scroll={false}
-                    className="glass group block rounded-3xl p-6 transition duration-300 hover:-translate-y-1 hover:border-rose-gold/30"
+                    className="glass group block overflow-hidden rounded-3xl p-6 transition duration-300 hover:-translate-y-1 hover:border-rose-gold/30"
                   >
                     <div className="flex items-center justify-between">
                       <span className="grid h-11 w-11 place-items-center rounded-2xl bg-rose-gold/15 text-rose-gold transition group-hover:scale-110"><PinIcon /></span>
@@ -169,11 +170,29 @@ async function Dashboard({ searchParams }: { searchParams: PageProps<"/dashboard
                         <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> <T>Ouvert</T>
                       </span>
                     </div>
+
+                    {c.photos && c.photos.length > 0 && (
+                      <div className="mt-3 h-28 w-full overflow-hidden rounded-2xl border border-white/10">
+                        <img
+                          src={c.photos[0]}
+                          alt={c.name}
+                          className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                        />
+                      </div>
+                    )}
+
                     <p className="mt-4 font-medium text-white">{c.name}</p>
                     <p className="text-sm text-white/50"><T>{governorateLabel(c.governorate)}</T></p>
-                    <p className="mt-3 flex items-center gap-1.5 text-xs text-white/45">
-                      <UsersIcon width={14} height={14} /> {c.members.length} <T>{c.members.length > 1 ? "membres" : "membre"}</T>
-                    </p>
+                    <div className="mt-3 flex items-center justify-between text-xs text-white/45">
+                      <span className="flex items-center gap-1.5">
+                        <UsersIcon width={14} height={14} /> {c.members.length} <T>{c.members.length > 1 ? "membres" : "membre"}</T>
+                      </span>
+                      {c.photos && c.photos.length > 0 && (
+                        <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-white/60">
+                          {c.photos.length} photo{c.photos.length > 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </div>
                   </Link>
                 ))}
                 {isOwner && <AddCenter />}
@@ -250,56 +269,63 @@ function ConsolidatedStats({ centers }: { centers: VisibleCenter[] }) {
   );
 }
 
-function CenterDetail({ center }: { center: VisibleCenter }) {
+function CenterDetail({ center, isOwner = true }: { center: VisibleCenter; isOwner?: boolean }) {
   const hours = (center.openingHours ?? null) as Record<string, string | null> | null;
 
   return (
-    <div className="grid gap-5 lg:grid-cols-5">
-      <div className="glass glow-border rounded-[2rem] p-7 lg:col-span-3 animate-fade-up">
-        <div className="flex items-center gap-4">
-          <span className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-blush to-champagne text-plum-950"><PinIcon width={26} height={26} /></span>
-          <div>
-            <p className="font-display text-2xl text-white">{center.name}</p>
-            <p className="text-sm text-white/50"><T>{governorateLabel(center.governorate)}</T></p>
+    <div className="space-y-6">
+      <div className="grid gap-5 lg:grid-cols-5">
+        <div className="glass glow-border rounded-[2rem] p-7 lg:col-span-3 animate-fade-up">
+          <div className="flex items-center gap-4">
+            <span className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-blush to-champagne text-plum-950"><PinIcon width={26} height={26} /></span>
+            <div>
+              <p className="font-display text-2xl text-white">{center.name}</p>
+              <p className="text-sm text-white/50"><T>{governorateLabel(center.governorate)}</T></p>
+            </div>
           </div>
-        </div>
-        <p className="mb-3 mt-7 text-xs uppercase tracking-wider text-white/40"><T>Équipe du centre</T></p>
-        <ul className="stagger space-y-2">
-          {center.members.map(({ user: m }) => (
-            <li key={m.id} className="flex items-center justify-between rounded-2xl bg-white/[0.04] px-4 py-3">
-              <span className="flex items-center gap-3">
-                <span className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-xs font-semibold text-white">
-                  {m.firstName[0]}{m.lastName[0]}
+          <p className="mb-3 mt-7 text-xs uppercase tracking-wider text-white/40"><T>Équipe du centre</T></p>
+          <ul className="stagger space-y-2">
+            {center.members.map(({ user: m }) => (
+              <li key={m.id} className="flex items-center justify-between rounded-2xl bg-white/[0.04] px-4 py-3">
+                <span className="flex items-center gap-3">
+                  <span className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-xs font-semibold text-white">
+                    {m.firstName[0]}{m.lastName[0]}
+                  </span>
+                  <span className="text-sm text-white">{m.firstName} {m.lastName}</span>
                 </span>
-                <span className="text-sm text-white">{m.firstName} {m.lastName}</span>
-              </span>
-              <span className="rounded-full bg-rose-gold/10 px-2.5 py-0.5 text-xs text-rose-gold"><T>{ROLE_LABELS[m.role]}</T></span>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div className="glass rounded-[2rem] p-7 lg:col-span-2 animate-fade-up [animation-delay:0.1s]">
-        <p className="mb-4 flex items-center gap-2 text-xs uppercase tracking-wider text-white/40">
-          <ClockIcon width={14} height={14} /> <T>Horaires d&apos;ouverture</T>
-        </p>
-        {hours ? (
-          <ul className="space-y-2 text-sm">
-            {DAYS.map((d) => (
-              <li key={d} className="flex justify-between border-b border-white/5 pb-2 last:border-0">
-                <span className="capitalize text-white/60"><T>{d}</T></span>
-                <span className={hours[d] ? "text-white" : "text-white/35"} dir="ltr">{hours[d] ?? "—"}</span>
+                <span className="rounded-full bg-rose-gold/10 px-2.5 py-0.5 text-xs text-rose-gold"><T>{ROLE_LABELS[m.role]}</T></span>
               </li>
             ))}
           </ul>
-        ) : (
-          <div className="text-sm text-white/50">
-            <T>Pas encore d&apos;horaires.</T>{" "}
-            <Link href="/dashboard/assistant" className="text-rose-gold underline-offset-4 hover:underline">
-              <T>Les générer avec l&apos;IA</T>
-            </Link>
-          </div>
-        )}
+        </div>
+
+        <div className="glass rounded-[2rem] p-7 lg:col-span-2 animate-fade-up [animation-delay:0.1s]">
+          <p className="mb-4 flex items-center gap-2 text-xs uppercase tracking-wider text-white/40">
+            <ClockIcon width={14} height={14} /> <T>Horaires d&apos;ouverture</T>
+          </p>
+          {hours ? (
+            <ul className="space-y-2 text-sm">
+              {DAYS.map((d) => (
+                <li key={d} className="flex justify-between border-b border-white/5 pb-2 last:border-0">
+                  <span className="capitalize text-white/60"><T>{d}</T></span>
+                  <span className={hours[d] ? "text-white" : "text-white/35"} dir="ltr">{hours[d] ?? "—"}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="text-sm text-white/50">
+              <T>Pas encore d&apos;horaires.</T>{" "}
+              <Link href="/dashboard/assistant" className="text-rose-gold underline-offset-4 hover:underline">
+                <T>Les générer avec l&apos;IA</T>
+              </Link>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Galerie photos du centre */}
+      <div className="glass rounded-[2rem] p-7 animate-fade-up [animation-delay:0.2s]">
+        <CenterPhotosGallery centerId={center.id} initialPhotos={center.photos} isEditable={isOwner} />
       </div>
     </div>
   );

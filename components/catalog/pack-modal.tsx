@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Modal } from "@/components/ui/modal";
 import { SparkleIcon, WalletIcon, ClockIcon } from "@/components/ui/icons";
+import { ImageUploader } from "@/components/ui/image-uploader";
 import { savePackAction } from "@/app/actions/catalog";
 import type { PackDetail, ServiceDetail } from "@/lib/data/catalog";
 
@@ -33,7 +34,6 @@ export function PackModal({
   const [selectedCenterIds, setSelectedCenterIds] = useState<string[]>([]);
   const [centerPrices, setCenterPrices] = useState<{ centerId: string; priceTnd: number }[]>([]);
   const [photos, setPhotos] = useState<string[]>([]);
-  const [photoUrl, setPhotoUrl] = useState("");
 
   useEffect(() => {
     if (pack) {
@@ -52,7 +52,6 @@ export function PackModal({
       setSelectedCenterIds([]);
       setCenterPrices([]);
       setPhotos([]);
-      setPhotoUrl("");
     }
   }, [pack, open]);
 
@@ -98,14 +97,6 @@ export function PackModal({
       setSelectedCenterIds(selectedCenterIds.filter((id) => id !== centerId));
     } else {
       setSelectedCenterIds([...selectedCenterIds, centerId]);
-    }
-  };
-
-  const addPhoto = () => {
-    const trimmed = photoUrl.trim();
-    if (trimmed && !photos.includes(trimmed)) {
-      setPhotos([...photos, trimmed]);
-      setPhotoUrl("");
     }
   };
 
@@ -331,43 +322,15 @@ export function PackModal({
           </div>
         )}
 
-        {/* Photos */}
-        <div>
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-white/70">
-            Photos du pack (URL)
-          </label>
-          <div className="flex gap-2">
-            <input
-              type="url"
-              value={photoUrl}
-              onChange={(e) => setPhotoUrl(e.target.value)}
-              placeholder="https://images.unsplash.com/..."
-              className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none"
-            />
-            <button
-              type="button"
-              onClick={addPhoto}
-              className="rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-xs font-medium text-white hover:bg-white/15"
-            >
-              Ajouter
-            </button>
-          </div>
-          {photos.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {photos.map((p, idx) => (
-                <div key={idx} className="group relative h-16 w-16 overflow-hidden rounded-xl border border-white/10">
-                  <img src={p} alt="" className="h-full w-full object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => setPhotos(photos.filter((_, i) => i !== idx))}
-                    className="absolute inset-0 grid place-items-center bg-black/60 opacity-0 transition group-hover:opacity-100 text-white text-xs font-bold"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+        {/* Photos Upload (F2.3) */}
+        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+          <ImageUploader
+            label="Photos du pack"
+            hint="Téléversez ou glissez les visuels mettant en avant la formule pack / rituel beauté."
+            photos={photos}
+            onChange={setPhotos}
+            maxPhotos={6}
+          />
         </div>
 
         {/* Boutons d'action */}

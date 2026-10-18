@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Modal } from "@/components/ui/modal";
 import { PlusIcon, TrashIcon, ClockIcon, WalletIcon } from "@/components/ui/icons";
+import { ImageUploader } from "@/components/ui/image-uploader";
 import { saveServiceAction } from "@/app/actions/catalog";
 import type { ServiceDetail, ServiceOptionItem } from "@/lib/data/catalog";
 
@@ -39,7 +40,6 @@ export function ServiceModal({
   const [skillInput, setSkillInput] = useState("");
   const [equipment, setEquipment] = useState<string[]>([]);
   const [equipmentInput, setEquipmentInput] = useState("");
-  const [photoUrl, setPhotoUrl] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
 
   useEffect(() => {
@@ -76,7 +76,6 @@ export function ServiceModal({
       setEquipment([]);
       setEquipmentInput("");
       setPhotos([]);
-      setPhotoUrl("");
     }
   }, [service, categories, open]);
 
@@ -163,14 +162,6 @@ export function ServiceModal({
     if (trimmed && !equipment.includes(trimmed)) {
       setEquipment([...equipment, trimmed]);
       setEquipmentInput("");
-    }
-  };
-
-  const addPhoto = () => {
-    const trimmed = photoUrl.trim();
-    if (trimmed && !photos.includes(trimmed)) {
-      setPhotos([...photos, trimmed]);
-      setPhotoUrl("");
     }
   };
 
@@ -566,43 +557,15 @@ export function ServiceModal({
           </div>
         </div>
 
-        {/* Photos URLs */}
-        <div>
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-white/70">
-            Photos du service (URL)
-          </label>
-          <div className="flex gap-2">
-            <input
-              type="url"
-              value={photoUrl}
-              onChange={(e) => setPhotoUrl(e.target.value)}
-              placeholder="https://images.unsplash.com/photo-..."
-              className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder-white/30 focus:border-rose-gold/60 focus:outline-none"
-            />
-            <button
-              type="button"
-              onClick={addPhoto}
-              className="rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-xs font-medium text-white hover:bg-white/15"
-            >
-              Ajouter
-            </button>
-          </div>
-          {photos.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {photos.map((p, idx) => (
-                <div key={idx} className="group relative h-16 w-16 overflow-hidden rounded-xl border border-white/10">
-                  <img src={p} alt="" className="h-full w-full object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => setPhotos(photos.filter((_, i) => i !== idx))}
-                    className="absolute inset-0 grid place-items-center bg-black/60 opacity-0 transition group-hover:opacity-100 text-white text-xs font-bold"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+        {/* Photos Upload (F2.1) */}
+        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+          <ImageUploader
+            label="Photos du service"
+            hint="Téléversez ou glissez les photos du soin (avant/après, résultat, produits). Elles seront affichées sur votre vitrine."
+            photos={photos}
+            onChange={setPhotos}
+            maxPhotos={6}
+          />
         </div>
 
         {/* Boutons d'action */}
