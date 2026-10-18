@@ -5,12 +5,14 @@ import { createCenter } from "@/app/actions/centers";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Alert, Field, SubmitButton } from "@/components/ui/form";
 import { PinIcon, PlusIcon, StoreIcon } from "@/components/ui/icons";
+import { ImageUploader } from "@/components/ui/image-uploader";
 import { GOVERNORATES } from "@/lib/definitions";
 
 // Carte « + Ajouter un centre » qui se retourne en formulaire.
 export function AddCenter() {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const [photos, setPhotos] = useState<string[]>([]);
   const [state, action, pending] = useActionState(createCenter, undefined);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -18,7 +20,10 @@ export function AddCenter() {
   useEffect(() => {
     if (!state?.success) return;
     formRef.current?.reset();
-    const id = setTimeout(() => setOpen(false), 900);
+    const id = setTimeout(() => {
+      setPhotos([]);
+      setOpen(false);
+    }, 900);
     return () => clearTimeout(id);
   }, [state]);
 
@@ -40,7 +45,7 @@ export function AddCenter() {
   }
 
   return (
-    <form ref={formRef} action={action} className="glass space-y-3 rounded-3xl p-5 animate-fade-up" noValidate>
+    <form ref={formRef} action={action} className="glass space-y-4 rounded-3xl p-5 animate-fade-up" noValidate>
       {state?.success && <Alert tone="success">{t(state.success)}</Alert>}
       {state?.message && <Alert>{t(state.message)}</Alert>}
       <Field label="Nom du centre" name="name" icon={StoreIcon} error={state?.errors?.name} autoFocus />
@@ -54,8 +59,28 @@ export function AddCenter() {
         </select>
       </div>
       {state?.errors?.governorate && <p className="ps-1 text-[13px] text-red-300">{t(state.errors.governorate[0])}</p>}
+
+      {/* Upload des photos du centre */}
+      <input type="hidden" name="photos" value={JSON.stringify(photos)} />
+      <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3">
+        <ImageUploader
+          label="Photos du centre"
+          hint="Glissez ou sélectionnez les photos du centre (façade, intérieur, cabines...)"
+          photos={photos}
+          onChange={setPhotos}
+          maxPhotos={6}
+        />
+      </div>
+
       <div className="flex gap-2">
-        <button type="button" onClick={() => setOpen(false)} className="h-14 rounded-2xl border border-white/10 px-4 text-sm text-white/60 hover:text-white">
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            setPhotos([]);
+          }}
+          className="h-14 rounded-2xl border border-white/10 px-4 text-sm text-white/60 hover:text-white"
+        >
           {t("Annuler")}
         </button>
         <SubmitButton pending={pending}>{t("Ajouter")}</SubmitButton>
@@ -63,3 +88,4 @@ export function AddCenter() {
     </form>
   );
 }
+

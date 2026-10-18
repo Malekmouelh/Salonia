@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
   experimental: {
     // Réessaie navigations et Server Actions au retour du réseau + hook useOffline.
     useOffline: true,
+    // Photos du catalogue et des centres envoyées par Server Action (6 × ~440 Ko max, vérifié côté serveur).
+    serverActions: { bodySizeLimit: "4mb" },
   },
   turbopack: {
     root: __dirname,

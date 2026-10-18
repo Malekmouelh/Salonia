@@ -22,6 +22,7 @@ export type PublicSalon = {
     name: string;
     governorate: Governorate;
     address: string | null;
+    photos: string[];
     openingHours: Record<string, string | null>;
     practitioners: { id: string; name: string }[];
   }[];
@@ -53,6 +54,7 @@ export async function getPublicSalon(slug: string): Promise<PublicSalon | null> 
       name: c.name,
       governorate: c.governorate as Governorate,
       address: c.address ?? null,
+      photos: (c.photos ?? []).map(String),
       openingHours: (c.openingHours as Record<string, string | null> | null) ?? DEFAULT_HOURS,
       // Prénom + initiale seulement côté public.
       practitioners: practitioners[i].map((p) => ({ id: p.id, name: `${p.firstName} ${p.lastName[0]}.` })),

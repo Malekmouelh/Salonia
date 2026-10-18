@@ -31,12 +31,23 @@ CustomerSchema.index({ organizationId: 1, lastName: 1, firstName: 1 });
 export const Customer = model("Customer", CustomerSchema);
 
 // Prestation réservée, copiée au moment de la réservation (le prix ne change pas après coup).
+const BookingItemOptionSchema = new Schema(
+  {
+    optionName: { type: String, required: true },
+    label: { type: String, required: true },
+    extraPriceTnd: { type: Number, default: 0 },
+    extraDurationMinutes: { type: Number, default: 0 },
+  },
+  { _id: false },
+);
+
 const BookingItemSchema = new Schema(
   {
     serviceId: { type: ObjectId, ref: "Service", required: true },
     name: { type: String, required: true },
     durationMinutes: { type: Number, required: true },
     priceTnd: { type: Number, required: true },
+    selectedOptions: { type: [BookingItemOptionSchema], default: [] },
   },
   { _id: false },
 );
@@ -52,6 +63,9 @@ const BookingSchema = new Schema(
     packId: { type: ObjectId, ref: "Pack", default: null },
     packName: String,
     totalTnd: { type: Number, required: true },
+    promoCode: { type: String, uppercase: true, trim: true },
+    discountTnd: { type: Number, default: 0 },
+    promotionId: { type: ObjectId, ref: "Promotion", default: null },
     start: { type: Date, required: true },
     end: { type: Date, required: true },
     status: { type: String, enum: BOOKING_STATUSES, default: "CONFIRMED" },

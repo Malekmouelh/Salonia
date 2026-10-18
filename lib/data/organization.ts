@@ -10,6 +10,9 @@ export type VisibleCenter = {
   id: string;
   name: string;
   governorate: Governorate;
+  address?: string | null;
+  phone?: string | null;
+  photos: string[];
   openingHours: Record<string, string | null> | null;
   members: { user: { id: string; firstName: string; lastName: string; role: Role } }[];
 };
@@ -31,6 +34,9 @@ export async function getVisibleCenters(user: CurrentUser): Promise<VisibleCente
     id: String(c._id),
     name: c.name,
     governorate: c.governorate as Governorate,
+    address: c.address ?? null,
+    phone: c.phone ?? null,
+    photos: (c.photos ?? []).map(String),
     openingHours: (c.openingHours as Record<string, string | null> | null) ?? null,
     members: members
       .filter((m) => m.centerIds.some((id) => String(id) === String(c._id)))

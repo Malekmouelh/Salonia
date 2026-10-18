@@ -8,6 +8,7 @@ import { addDays, addMinutes, parseDayKey, startOfLocalDay } from "@/lib/booking
 import { connectDB } from "@/lib/db";
 import { isPhone, normalizePhone } from "@/lib/definitions";
 import { Booking, WaitlistEntry } from "@/lib/models/booking";
+import { Promotion } from "@/lib/models/catalog";
 import { Organization } from "@/lib/models/core";
 import { isObjectId } from "@/lib/data/public-salon";
 
@@ -40,10 +41,13 @@ async function orgBySlug(slug: string) {
 const SelectionSchema = z.object({
   serviceIds: z.array(z.string()).max(MAX_SERVICES, "6 prestations maximum par rendez-vous.").default([]),
   packId: z.string().nullable().optional(),
+  selectedOptions: z.record(z.string(), z.record(z.string(), z.string())).optional(),
 });
 
 function toSelection(s: z.infer<typeof SelectionSchema>) {
-  return s.packId ? { packId: s.packId } : { serviceIds: s.serviceIds };
+  return s.packId
+    ? { packId: s.packId, selectedOptions: s.selectedOptions }
+    : { serviceIds: s.serviceIds, selectedOptions: s.selectedOptions };
 }
 
 // Disponibilités d'une journée.
@@ -61,7 +65,7 @@ export async function getPublicSlots(input: {
   try {
     const selection = SelectionSchema.safeParse(input.selection);
     if (!selection.success) return { slots: [], error: selection.error.issues[0]?.message ?? "Demande invalide." };
-    const { duration } = await resolveItems(org.id, toSelection(selection.data));
+    const { duration } = await resolveItems(org.id, toSelection(selection.data), input.centerId);
     const slots = await getDaySlots({
       organizationId: org.id,
       centerId: input.centerId,
@@ -90,7 +94,7 @@ export async function getPublicMonthAvailability(input: {
   if (!org || !m || !isObjectId(input.centerId)) return empty;
   const selection = SelectionSchema.safeParse(input.selection);
   if (!selection.success) return empty;
-  const { duration } = await resolveItems(org.id, toSelection(selection.data)).catch(() => ({ duration: 0 }));
+  const { duration } = await resolveItems(org.id, toSelection(selection.data), input.centerId).catch(() => ({ duration: 0 }));
   if (!duration) return empty;
 
   const year = Number(m[1]);
@@ -127,6 +131,7 @@ const OnlineBookingSchema = z.object({
   email: z.union([z.literal(""), z.email("Adresse e-mail invalide.")]).optional(),
   remindersConsent: z.boolean(),
   notes: z.string().trim().max(300).optional(),
+  promoCode: z.string().trim().max(30).optional(),
   viaChatbot: z.boolean().optional(),
   // Champ invisible : rempli seulement par les robots.
   website: z.string().max(0).optional(),
@@ -156,7 +161,7 @@ export async function createOnlineBooking(input: z.input<typeof OnlineBookingSch
 
   try {
     const selection = toSelection(d.selection);
-    const { duration } = await resolveItems(org.id, selection);
+    const { duration } = await resolveItems(org.id, selection, d.centerId);
     // « Peu importe le praticien » : le moins chargé parmi ceux qui sont libres.
     let staffId = isObjectId(d.staffId) ? d.staffId : null;
     if (!staffId) {
@@ -179,6 +184,7 @@ export async function createOnlineBooking(input: z.input<typeof OnlineBookingSch
       customerId: String(customer._id),
       start,
       selection,
+      promoCode: d.promoCode,
       source: d.viaChatbot ? "CHATBOT" : "ONLINE",
       notes: d.notes,
       baseUrl: await baseUrl(),
@@ -188,6 +194,76 @@ export async function createOnlineBooking(input: z.input<typeof OnlineBookingSch
   } catch (e) {
     if (e instanceof BookingError) return { error: e.message };
     throw e;
+  }
+}
+
+// Validation d'un code promo en temps réel lors du parcours de réservation.
+export async function validatePromoCodeAction(input: {
+  slug: string;
+  centerId: string;
+  code: string;
+  selection: z.input<typeof SelectionSchema>;
+}): Promise<
+  | { ok: true; code: string; name: string; type: string; value: number; discountTnd: number; newTotalTnd: number }
+  | { ok: false; error: string }
+> {
+  const org = await orgBySlug(input.slug);
+  if (!org) return { ok: false, error: "Salon introuvable." };
+  const rawCode = (input.code ?? "").trim().toUpperCase();
+  if (!rawCode) return { ok: false, error: "Veuillez saisir un code promo." };
+
+  const parsedSel = SelectionSchema.safeParse(input.selection);
+  if (!parsedSel.success) return { ok: false, error: "Sélection invalide." };
+
+  try {
+    const sel = toSelection(parsedSel.data);
+    const resolved = await resolveItems(org.id, sel, input.centerId);
+    const now = new Date();
+    const promo = await Promotion.findOne({
+      organizationId: org.id,
+      code: rawCode,
+      active: true,
+    }).lean();
+
+    if (!promo) return { ok: false, error: "Code promo invalide ou inactif." };
+    if (now < promo.startsAt) return { ok: false, error: "Ce code promo n'est pas encore actif." };
+    if (now > promo.endsAt) return { ok: false, error: "Ce code promo a expiré." };
+    if (promo.maxUses != null && promo.usedCount >= promo.maxUses) {
+      return { ok: false, error: "Ce code promo a atteint sa limite d'utilisation." };
+    }
+    if (promo.centerIds && promo.centerIds.length > 0) {
+      const matchCenter = promo.centerIds.some((cid) => String(cid) === String(input.centerId));
+      if (!matchCenter) return { ok: false, error: "Ce code promo n'est pas valable dans ce salon." };
+    }
+    const hasServiceFilter = promo.serviceIds && promo.serviceIds.length > 0;
+    const hasPackFilter = promo.packIds && promo.packIds.length > 0;
+    if (hasServiceFilter || hasPackFilter) {
+      const matchesService = hasServiceFilter && resolved.items.some((it) => promo.serviceIds.some((sid) => String(sid) === String(it.serviceId)));
+      const matchesPack = Boolean(hasPackFilter && resolved.packId && promo.packIds.some((pid) => String(pid) === String(resolved.packId)));
+      if (!matchesService && !matchesPack) {
+        return { ok: false, error: "Ce code promo ne s'applique pas aux prestations sélectionnées." };
+      }
+    }
+
+    let discountTnd = 0;
+    if (promo.type === "PERCENTAGE") {
+      discountTnd = Math.round((resolved.totalTnd * promo.value) / 100);
+      discountTnd = Math.min(resolved.totalTnd, Math.max(0, discountTnd));
+    } else {
+      discountTnd = Math.min(resolved.totalTnd, promo.value);
+    }
+
+    return {
+      ok: true,
+      code: promo.code!,
+      name: promo.name,
+      type: promo.type,
+      value: promo.value,
+      discountTnd,
+      newTotalTnd: Math.max(0, resolved.totalTnd - discountTnd),
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof BookingError ? e.message : "Erreur lors de la validation du code promo." };
   }
 }
 

@@ -1,6 +1,7 @@
 import "server-only";
 import { Types } from "mongoose";
 import { getPractitioners } from "@/lib/booking/availability";
+import { resolvePrice as resolveCenterPrice } from "@/lib/booking/create";
 import { customerStats, getNoShowModel, scoreBooking } from "@/lib/booking/noshow";
 import {
   addDays,
@@ -172,26 +173,58 @@ export async function getCatalog(organizationId: string, centerId?: string | nul
     ? { $or: [{ centerIds: { $size: 0 } }, { centerIds: new Types.ObjectId(centerId) }] }
     : {};
   const [services, packs] = await Promise.all([
-    Service.find({ organizationId, active: true, ...centerFilter }).sort({ category: 1, name: 1 }).lean(),
-    Pack.find({ organizationId, active: true }).populate<{ serviceIds: { _id: Types.ObjectId; name: string; durationMinutes: number }[] }>("serviceIds", "name durationMinutes").lean(),
+    Service.find({ organizationId, active: true, ...centerFilter }).sort({ sortOrder: 1, category: 1, name: 1 }).lean(),
+    Pack.find({ organizationId, active: true, ...centerFilter })
+      .populate<{ serviceIds: { _id: Types.ObjectId; name: string; durationMinutes: number; priceTnd: number }[] }>("serviceIds", "name durationMinutes priceTnd")
+      .sort({ sortOrder: 1, name: 1 })
+      .lean(),
   ]);
+
+  const resolvePrice = (item: Parameters<typeof resolveCenterPrice>[0]) => resolveCenterPrice(item, centerId);
+
   const serviceOptions: ServiceOption[] = services.map((s) => ({
     id: String(s._id),
     name: s.name,
     category: s.category,
     durationMinutes: s.durationMinutes,
-    priceTnd: s.priceTnd,
+    priceTnd: resolvePrice(s),
+    description: s.description ?? "",
+    photos: (s.photos ?? []).map(String),
+    options: (s.options ?? []).map((o) => ({
+      name: o.name,
+      values: (o.values ?? []).map((v) => ({
+        label: v.label,
+        extraPriceTnd: v.extraPriceTnd ?? 0,
+        extraDurationMinutes: v.extraDurationMinutes ?? 0,
+      })),
+    })),
+    centerPrices: (s.centerPrices ?? []).map((cp) => ({ centerId: String(cp.centerId), priceTnd: cp.priceTnd })),
   }));
-  const packOptions: PackOption[] = packs.map((p) => ({
-    id: String(p._id),
-    name: p.name,
-    priceTnd: p.priceTnd,
-    durationMinutes: p.serviceIds.reduce((sum, s) => sum + s.durationMinutes, 0),
-    serviceIds: p.serviceIds.map((s) => String(s._id)),
-    serviceNames: p.serviceIds.map((s) => s.name),
-  }));
+
+  const packOptions: PackOption[] = packs.map((p) => {
+    const validServices = (p.serviceIds ?? []).filter((s) => s && s._id);
+    const packPrice = resolvePrice(p);
+    const regularTotal = validServices.reduce((sum, s) => sum + (s.priceTnd || 0), 0);
+    const savingsTnd = Math.max(0, regularTotal - packPrice);
+    const savingsPercent = regularTotal > 0 ? Math.round((savingsTnd / regularTotal) * 100) : 0;
+    return {
+      id: String(p._id),
+      name: p.name,
+      priceTnd: packPrice,
+      durationMinutes: validServices.reduce((sum, s) => sum + s.durationMinutes, 0),
+      serviceIds: validServices.map((s) => String(s._id)),
+      serviceNames: validServices.map((s) => s.name),
+      description: p.description ?? "",
+      photos: (p.photos ?? []).map(String),
+      savingsTnd: savingsTnd > 0 ? savingsTnd : undefined,
+      savingsPercent: savingsPercent > 0 ? savingsPercent : undefined,
+      centerPrices: (p.centerPrices ?? []).map((cp) => ({ centerId: String(cp.centerId), priceTnd: cp.priceTnd })),
+    };
+  });
+
   return { services: serviceOptions, packs: packOptions };
 }
+
 
 // IA — Créneaux à remplir : trous d'au moins 45 min sur les 7 prochains jours,
 // associés aux clients de la liste d'attente et aux habitués qui n'ont pas reréservé.

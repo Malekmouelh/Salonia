@@ -29,6 +29,7 @@ const CenterSchema = new Schema(
     governorate: { type: String, enum: GOVERNORATE_CODES, required: true },
     address: String,
     phone: String,
+    photos: [{ type: String }],
     // { lundi: "09:00-19:00", dimanche: null, ... }
     openingHours: { type: Schema.Types.Mixed, default: null },
   },

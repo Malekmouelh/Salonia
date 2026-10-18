@@ -63,21 +63,29 @@ export async function login(_state: FormState, formData: FormData): Promise<Form
     };
   }
 
-  const user = await findByIdentifier(identifier);
-  const valid = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
+  try {
+    const user = await findByIdentifier(identifier);
+    const valid = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
 
-  if (!user || !valid) {
-    const count = (entry?.count ?? 0) + 1;
-    const locked = count >= MAX_ATTEMPTS;
-    attempts.set(key, { count: locked ? 0 : count, lockedUntil: locked ? Date.now() + LOCK_MS : 0 });
-    if (user) await logEvent(locked ? "LOGIN_LOCKED" : "LOGIN_FAILED", ids(user));
-    return { message: "Identifiant ou mot de passe incorrect.", values: { identifier } };
+    if (!user || !valid) {
+      const count = (entry?.count ?? 0) + 1;
+      const locked = count >= MAX_ATTEMPTS;
+      attempts.set(key, { count: locked ? 0 : count, lockedUntil: locked ? Date.now() + LOCK_MS : 0 });
+      if (user) await logEvent(locked ? "LOGIN_LOCKED" : "LOGIN_FAILED", ids(user));
+      return { message: "Identifiant ou mot de passe incorrect.", values: { identifier } };
+    }
+
+    attempts.delete(key);
+    await User.updateOne({ _id: user._id }, { lastLoginAt: new Date() });
+    await logEvent("LOGIN_SUCCESS", { ...ids(user), detail: isPhone(identifier) ? "phone" : "email" });
+    await createSession({ ...ids(user), role: user.role as Role }, formData.get("remember") === "on");
+  } catch (error) {
+    console.error("Erreur login :", error);
+    return {
+      message: "Impossible de joindre la base de données. Vérifiez l'adresse IP autorisée sur MongoDB Atlas.",
+      values: { identifier },
+    };
   }
-
-  attempts.delete(key);
-  await User.updateOne({ _id: user._id }, { lastLoginAt: new Date() });
-  await logEvent("LOGIN_SUCCESS", { ...ids(user), detail: isPhone(identifier) ? "phone" : "email" });
-  await createSession({ ...ids(user), role: user.role as Role }, formData.get("remember") === "on");
 
   // Retour à la page demandée avant la connexion (chemins internes uniquement).
   const next = String(formData.get("next") ?? "");
@@ -122,44 +130,53 @@ export async function register(_state: FormState, formData: FormData): Promise<F
   const data = parsed.data;
   const phone = data.phone ? normalizePhone(data.phone) : null;
 
-  await connectDB();
-  const existing = await User.findOne({ $or: [{ email: data.email }, ...(phone ? [{ phone }] : [])] })
-    .select("email")
-    .lean();
-  if (existing) {
+  try {
+    await connectDB();
+    const existing = await User.findOne({ $or: [{ email: data.email }, ...(phone ? [{ phone }] : [])] })
+      .select("email")
+      .lean();
+    if (existing) {
+      return {
+        errors:
+          existing.email === data.email
+            ? { email: ["Cet e-mail est déjà utilisé."] }
+            : { phone: ["Ce numéro est déjà utilisé."] },
+        values,
+      };
+    }
+
+    const passwordHash = await bcrypt.hash(data.password, 12);
+    const slug = await uniqueSlug(data.salonName);
+
+    // Le propriétaire, sa marque et son premier centre sont créés ensemble.
+    const organization = await Organization.create({ name: data.salonName, slug });
+    const center = await Center.create({
+      organizationId: organization._id,
+      name: data.salonName,
+      governorate: data.governorate,
+    });
+    const user = await User.create({
+      firstName: data.firstName,
+      lastName: data.lastName,
+      email: data.email,
+      phone: phone ?? undefined,
+      passwordHash,
+      role: "OWNER",
+      organizationId: organization._id,
+      centerIds: [center._id],
+      lastLoginAt: new Date(),
+    });
+
+    await logEvent("REGISTER", ids(user));
+    await createSession({ ...ids(user), role: "OWNER" });
+  } catch (error) {
+    console.error("Erreur register :", error);
     return {
-      errors:
-        existing.email === data.email
-          ? { email: ["Cet e-mail est déjà utilisé."] }
-          : { phone: ["Ce numéro est déjà utilisé."] },
+      message: "Impossible de joindre la base de données. Vérifiez l'accès réseau MongoDB Atlas.",
       values,
     };
   }
 
-  const passwordHash = await bcrypt.hash(data.password, 12);
-  const slug = await uniqueSlug(data.salonName);
-
-  // Le propriétaire, sa marque et son premier centre sont créés ensemble.
-  const organization = await Organization.create({ name: data.salonName, slug });
-  const center = await Center.create({
-    organizationId: organization._id,
-    name: data.salonName,
-    governorate: data.governorate,
-  });
-  const user = await User.create({
-    firstName: data.firstName,
-    lastName: data.lastName,
-    email: data.email,
-    phone: phone ?? undefined,
-    passwordHash,
-    role: "OWNER",
-    organizationId: organization._id,
-    centerIds: [center._id],
-    lastLoginAt: new Date(),
-  });
-
-  await logEvent("REGISTER", ids(user));
-  await createSession({ ...ids(user), role: "OWNER" });
   redirect("/dashboard?welcome=1");
 }
 
@@ -175,24 +192,30 @@ export async function forgotPassword(_state: FormState, formData: FormData): Pro
     success: "Si un compte correspond, un lien de réinitialisation vient d'être envoyé.",
   };
 
-  const user = await findByIdentifier(parsed.data.identifier);
-  if (!user) return response;
+  try {
+    const user = await findByIdentifier(parsed.data.identifier);
+    if (!user) return response;
 
-  const token = randomBytes(32).toString("base64url");
-  await PasswordResetToken.create({
-    userId: user._id,
-    tokenHash: hashToken(token),
-    expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
-  });
+    const token = randomBytes(32).toString("base64url");
+    const tokenHash = hashToken(token);
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
-  await logEvent("PASSWORD_RESET_REQUEST", ids(user));
+    await PasswordResetToken.create({
+      userId: user._id,
+      tokenHash,
+      expiresAt,
+    });
+    await logEvent("PASSWORD_RESET_REQUEST", ids(user));
 
-  const link = `/reset-password?token=${token}`;
-  // TODO (F0.6) : envoyer le lien par e-mail / SMS via le service de notifications.
-  console.log(`\n🔑 Lien de réinitialisation pour ${user.email ?? user.phone} : http://localhost:3000${link}\n`);
-
-  const demo = process.env.NODE_ENV !== "production" || process.env.DEMO_MODE === "true";
-  return demo ? { ...response, devLink: link } : response;
+    const demo = process.env.NODE_ENV !== "production" || process.env.DEMO_MODE === "true";
+    return demo ? { ...response, devLink: `/reset-password?token=${token}` } : response;
+  } catch (error) {
+    console.error("Erreur forgotPassword :", error);
+    return {
+      message: "Impossible de joindre la base de données.",
+      values: { identifier },
+    };
+  }
 }
 
 export async function resetPassword(_state: FormState, formData: FormData): Promise<FormState> {
@@ -207,18 +230,24 @@ export async function resetPassword(_state: FormState, formData: FormData): Prom
   }
 
   const invalid = { message: "Ce lien est invalide ou a expiré. Demandez-en un nouveau." };
-  await connectDB();
-  const record = await PasswordResetToken.findOne({ tokenHash: hashToken(parsed.data.token) }).lean();
-  if (!record || record.usedAt || record.expiresAt < new Date()) return invalid;
+  try {
+    await connectDB();
+    const record = await PasswordResetToken.findOne({ tokenHash: hashToken(parsed.data.token) }).lean();
+    if (!record || record.usedAt || record.expiresAt < new Date()) return invalid;
 
-  // Le jeton est marqué utilisé d'abord : un double clic sur le lien ne peut pas le réutiliser.
-  const used = await PasswordResetToken.updateOne({ _id: record._id, usedAt: null }, { usedAt: new Date() });
-  if (used.modifiedCount === 0) return invalid;
+    // Le jeton est marqué utilisé d'abord : un double clic sur le lien ne peut pas le réutiliser.
+    const used = await PasswordResetToken.updateOne({ _id: record._id, usedAt: null }, { usedAt: new Date() });
+    if (used.modifiedCount === 0) return invalid;
 
-  const passwordHash = await bcrypt.hash(parsed.data.password, 12);
-  await User.updateOne({ _id: record.userId }, { passwordHash });
+    const passwordHash = await bcrypt.hash(parsed.data.password, 12);
+    await User.updateOne({ _id: record.userId }, { passwordHash });
 
-  await logEvent("PASSWORD_RESET", { userId: String(record.userId) });
+    await logEvent("PASSWORD_RESET", { userId: String(record.userId) });
+  } catch (error) {
+    console.error("Erreur resetPassword :", error);
+    return { message: "Impossible de joindre la base de données. Réessayez." };
+  }
+
   redirect("/login?reset=1");
 }
 

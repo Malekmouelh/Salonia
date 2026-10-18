@@ -23,6 +23,17 @@ const EVENTS: Record<AuthEventType, { label: string; tone: string }> = {
   PASSWORD_RESET: { label: "Mot de passe modifié", tone: "bg-sky-400" },
   CENTER_CREATED: { label: "Centre ajouté", tone: "bg-rose-gold" },
   AI_SETUP_APPLIED: { label: "Configuration IA appliquée", tone: "bg-[#c9a0dc]" },
+  // Module 2 : catalogue
+  SERVICE_CREATED: { label: "Service créé", tone: "bg-emerald-400" },
+  SERVICE_UPDATED: { label: "Service modifié", tone: "bg-sky-400" },
+  SERVICE_DELETED: { label: "Service supprimé", tone: "bg-red-400" },
+  PACK_CREATED: { label: "Pack créé", tone: "bg-emerald-400" },
+  PACK_UPDATED: { label: "Pack modifié", tone: "bg-sky-400" },
+  PACK_DELETED: { label: "Pack supprimé", tone: "bg-red-400" },
+  PROMOTION_CREATED: { label: "Promotion créée", tone: "bg-emerald-400" },
+  PROMOTION_UPDATED: { label: "Promotion modifiée", tone: "bg-sky-400" },
+  PROMOTION_DELETED: { label: "Promotion supprimée", tone: "bg-red-400" },
+  // Module 3
   BOOKING_CREATED: { label: "Rendez-vous créé", tone: "bg-emerald-400" },
   BOOKING_CANCELLED: { label: "Rendez-vous annulé", tone: "bg-red-400" },
   BOOKING_RESCHEDULED: { label: "Rendez-vous reporté", tone: "bg-amber-400" },
