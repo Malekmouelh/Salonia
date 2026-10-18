@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { SparkleIcon, WalletIcon, ClockIcon } from "@/components/ui/icons";
 import { ImageUploader } from "@/components/ui/image-uploader";
@@ -35,7 +35,10 @@ export function PackModal({
   const [centerPrices, setCenterPrices] = useState<{ centerId: string; priceTnd: number }[]>([]);
   const [photos, setPhotos] = useState<string[]>([]);
 
-  useEffect(() => {
+  // Réinitialise le formulaire à l'ouverture ou au changement de pack (ajustement d'état pendant le rendu).
+  const [synced, setSynced] = useState<{ open: boolean; pack: typeof pack } | null>(null);
+  if (!synced || synced.open !== open || synced.pack !== pack) {
+    setSynced({ open, pack });
     if (pack) {
       setName(pack.name);
       setDescription(pack.description ?? "");
@@ -53,7 +56,7 @@ export function PackModal({
       setCenterPrices([]);
       setPhotos([]);
     }
-  }, [pack, open]);
+  }
 
   // Calculs en temps réel
   const selectedServices = availableServices.filter((s) => selectedServiceIds.includes(s.id));
@@ -113,7 +116,7 @@ export function PackModal({
 
     setLoading(true);
     try {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         name: name.trim(),
         description: description.trim(),
         serviceIds: selectedServiceIds,
@@ -134,8 +137,8 @@ export function PackModal({
       } else {
         onError(res.message || "Erreur lors de l'enregistrement du pack.");
       }
-    } catch (err: any) {
-      onError(err?.message || "Une erreur inattendue est survenue.");
+    } catch (err) {
+      onError((err instanceof Error ? err.message : "") || "Une erreur inattendue est survenue.");
     } finally {
       setLoading(false);
     }

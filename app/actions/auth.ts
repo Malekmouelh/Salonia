@@ -79,8 +79,7 @@ export async function login(_state: FormState, formData: FormData): Promise<Form
     await User.updateOne({ _id: user._id }, { lastLoginAt: new Date() });
     await logEvent("LOGIN_SUCCESS", { ...ids(user), detail: isPhone(identifier) ? "phone" : "email" });
     await createSession({ ...ids(user), role: user.role as Role }, formData.get("remember") === "on");
-  } catch (error: any) {
-    if (error?.digest?.startsWith("NEXT_REDIRECT")) throw error;
+  } catch (error) {
     console.error("Erreur login :", error);
     return {
       message: "Impossible de joindre la base de données. Vérifiez l'adresse IP autorisée sur MongoDB Atlas.",
@@ -170,8 +169,7 @@ export async function register(_state: FormState, formData: FormData): Promise<F
 
     await logEvent("REGISTER", ids(user));
     await createSession({ ...ids(user), role: "OWNER" });
-  } catch (error: any) {
-    if (error?.digest?.startsWith("NEXT_REDIRECT")) throw error;
+  } catch (error) {
     console.error("Erreur register :", error);
     return {
       message: "Impossible de joindre la base de données. Vérifiez l'accès réseau MongoDB Atlas.",
@@ -245,8 +243,7 @@ export async function resetPassword(_state: FormState, formData: FormData): Prom
     await User.updateOne({ _id: record.userId }, { passwordHash });
 
     await logEvent("PASSWORD_RESET", { userId: String(record.userId) });
-  } catch (error: any) {
-    if (error?.digest?.startsWith("NEXT_REDIRECT")) throw error;
+  } catch (error) {
     console.error("Erreur resetPassword :", error);
     return { message: "Impossible de joindre la base de données. Réessayez." };
   }

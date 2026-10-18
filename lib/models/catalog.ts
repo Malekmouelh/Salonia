@@ -88,7 +88,7 @@ const PromotionSchema = new Schema(
   {
     organizationId: { type: ObjectId, ref: "Organization", required: true, index: true },
     name: { type: String, required: true, trim: true },
-    code: { type: String, trim: true, uppercase: true, sparse: true },
+    code: { type: String, trim: true, uppercase: true },
     type: { type: String, enum: ["PERCENTAGE", "FIXED_AMOUNT"] as const, required: true },
     value: { type: Number, required: true, min: 0 },
     serviceIds: [{ type: ObjectId, ref: "Service" }],
@@ -102,5 +102,6 @@ const PromotionSchema = new Schema(
   },
   { timestamps: true },
 );
-PromotionSchema.index({ organizationId: 1, code: 1 }, { unique: true, sparse: true });
+// Code unique par salon ; plusieurs promotions sans code restent possibles.
+PromotionSchema.index({ organizationId: 1, code: 1 }, { unique: true, partialFilterExpression: { code: { $type: "string" } } });
 export const Promotion = model("Promotion", PromotionSchema);

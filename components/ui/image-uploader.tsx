@@ -40,7 +40,7 @@ export function ImageUploader({
         const img = new Image();
         img.onload = () => {
           const canvas = document.createElement("canvas");
-          const maxDim = 1200;
+          const maxDim = 1000;
           let width = img.width;
           let height = img.height;
 
@@ -60,7 +60,7 @@ export function ImageUploader({
           ctx?.drawImage(img, 0, 0, width, height);
 
           // WebP ou JPEG optimisé
-          const optimizedDataUrl = canvas.toDataURL("image/webp", 0.85);
+          const optimizedDataUrl = canvas.toDataURL("image/webp", 0.8);
           resolve(optimizedDataUrl);
         };
         img.onerror = () => resolve(result); // Fallback dataUrl standard
@@ -85,8 +85,8 @@ export function ImageUploader({
     try {
       const converted = await Promise.all(filesToProcess.map((f) => processFile(f)));
       onChange([...photos, ...converted]);
-    } catch (err: any) {
-      setError(err?.message || "Impossible de charger l'image.");
+    } catch (err) {
+      setError((err instanceof Error ? err.message : "") || "Impossible de charger l'image.");
     }
   };
 

@@ -50,7 +50,7 @@ export function PromotionModal({
 
     setLoading(true);
     try {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         name: name.trim(),
         code: code.trim().toUpperCase() || undefined,
         type,
@@ -71,8 +71,8 @@ export function PromotionModal({
       } else {
         onError(res.message || "Erreur lors de la création.");
       }
-    } catch (err: any) {
-      onError(err?.message || "Une erreur inattendue est survenue.");
+    } catch (err) {
+      onError((err instanceof Error ? err.message : "") || "Une erreur inattendue est survenue.");
     } finally {
       setLoading(false);
     }
@@ -84,7 +84,7 @@ export function PromotionModal({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-white/70">
-              Nom de l'offre *
+              Nom de l’offre *
             </label>
             <input
               type="text"
@@ -115,7 +115,7 @@ export function PromotionModal({
             </label>
             <select
               value={type}
-              onChange={(e) => setType(e.target.value as any)}
+              onChange={(e) => setType(e.target.value as typeof type)}
               className="w-full rounded-xl border border-white/10 bg-plum-950 px-4 py-2.5 text-sm text-white focus:outline-none"
             >
               <option value="PERCENTAGE">Pourcentage (%)</option>

@@ -1,6 +1,7 @@
 import "server-only";
 import { Types } from "mongoose";
 import { getPractitioners } from "@/lib/booking/availability";
+import { resolvePrice as resolveCenterPrice } from "@/lib/booking/create";
 import { customerStats, getNoShowModel, scoreBooking } from "@/lib/booking/noshow";
 import {
   addDays,
@@ -179,11 +180,7 @@ export async function getCatalog(organizationId: string, centerId?: string | nul
       .lean(),
   ]);
 
-  function resolvePrice(item: { priceTnd: number; centerPrices?: { centerId: any; priceTnd: number }[] }): number {
-    if (!centerId || !item.centerPrices || item.centerPrices.length === 0) return item.priceTnd;
-    const match = item.centerPrices.find((cp) => String(cp.centerId) === String(centerId));
-    return match !== undefined ? match.priceTnd : item.priceTnd;
-  }
+  const resolvePrice = (item: Parameters<typeof resolveCenterPrice>[0]) => resolveCenterPrice(item, centerId);
 
   const serviceOptions: ServiceOption[] = services.map((s) => ({
     id: String(s._id),

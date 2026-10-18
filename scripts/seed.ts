@@ -56,9 +56,11 @@ async function main() {
 
   // Index déclarés dans les modèles (uniques, TTL…).
   await Promise.all(
-    [Organization, Center, User, PasswordResetToken, AuthEvent, Service, Pack, Promotion, Customer, Booking,
+    [Organization, Center, User, PasswordResetToken, AuthEvent, Service, Pack, Customer, Booking,
       AvailabilityBlock, WaitlistEntry, Notification].map((m) => m.createIndexes()),
   );
+  // syncIndexes remplace l'ancien index unique des codes promo (sparse) par la version partielle.
+  await Promotion.syncIndexes();
 
   // ── Organisation et centres ──
   const org = await Organization.create({ name: "Salon Yasmine", slug: "salon-yasmine" });
@@ -106,7 +108,7 @@ async function main() {
   ];
   const services = await Service.create(
     SERVICES.map(([name, category, durationMinutes, priceTnd]) => {
-      const extra: any = {};
+      const extra: Record<string, unknown> = {};
       if (name === "Brushing") {
         extra.description = "Brushing lisse ou wavy haute brillance adapté à la nature de vos cheveux.";
         extra.options = [

@@ -1,5 +1,18 @@
 import { z } from "zod";
-import { PROMOTION_TYPES, type PromotionType } from "@/lib/enums";
+import { PROMOTION_TYPES } from "@/lib/enums";
+
+// Photos stockées en base (data URL compressée par le navigateur) : format et taille vérifiés côté serveur.
+export const MAX_PHOTOS = 6;
+const MAX_PHOTO_CHARS = 600_000; // ~440 Ko d'image
+export const PhotosSchema = z
+  .array(
+    z
+      .string()
+      .max(MAX_PHOTO_CHARS, "Photo trop volumineuse.")
+      .regex(/^data:image\/(webp|jpeg|png);base64,[A-Za-z0-9+/=]+$/, "Format de photo invalide."),
+  )
+  .max(MAX_PHOTOS, `${MAX_PHOTOS} photos maximum.`)
+  .default([]);
 
 export const ServiceOptionValueSchema = z.object({
   label: z.string().trim().min(1, "Libellé requis."),
@@ -31,7 +44,7 @@ export const CreateServiceSchema = z.object({
   options: z.array(ServiceOptionSchema).default([]),
   requiredSkills: z.array(z.string().trim()).default([]),
   requiredEquipment: z.array(z.string().trim()).default([]),
-  photos: z.array(z.string()).default([]),
+  photos: PhotosSchema,
 });
 export type CreateServiceInput = z.infer<typeof CreateServiceSchema>;
 
@@ -49,7 +62,7 @@ export const CreatePackSchema = z.object({
   description: z.string().trim().default(""),
   centerIds: z.array(z.string()).default([]),
   centerPrices: z.array(CenterPriceSchema).default([]),
-  photos: z.array(z.string()).default([]),
+  photos: PhotosSchema,
 });
 export type CreatePackInput = z.infer<typeof CreatePackSchema>;
 

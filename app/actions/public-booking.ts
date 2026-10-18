@@ -262,8 +262,8 @@ export async function validatePromoCodeAction(input: {
       discountTnd,
       newTotalTnd: Math.max(0, resolved.totalTnd - discountTnd),
     };
-  } catch (e: any) {
-    return { ok: false, error: e?.message ?? "Erreur lors de la validation du code promo." };
+  } catch (e) {
+    return { ok: false, error: e instanceof BookingError ? e.message : "Erreur lors de la validation du code promo." };
   }
 }
 

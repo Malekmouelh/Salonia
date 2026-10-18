@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { PlusIcon, TrashIcon, ClockIcon, WalletIcon, SparkleIcon } from "@/components/ui/icons";
 import { ImageUploader } from "@/components/ui/image-uploader";
@@ -71,7 +71,10 @@ export function ServiceModal({
     }
   };
 
-  useEffect(() => {
+  // Réinitialise le formulaire à l'ouverture ou au changement de service (ajustement d'état pendant le rendu).
+  const [synced, setSynced] = useState<{ open: boolean; service: typeof service } | null>(null);
+  if (!synced || synced.open !== open || synced.service !== service) {
+    setSynced({ open, service });
     if (service) {
       setName(service.name);
       if (categories.includes(service.category)) {
@@ -106,7 +109,7 @@ export function ServiceModal({
       setEquipmentInput("");
       setPhotos([]);
     }
-  }, [service, categories, open]);
+  }
 
   // Options editor helpers
   const addOptionGroup = () => {
@@ -148,7 +151,9 @@ export function ServiceModal({
     value: string | number,
   ) => {
     const copy = [...options];
-    (copy[groupIdx].values[valIdx] as any)[field] = value;
+    const values = [...copy[groupIdx].values];
+    values[valIdx] = { ...values[valIdx], [field]: value } as (typeof values)[number];
+    copy[groupIdx] = { ...copy[groupIdx], values };
     setOptions(copy);
   };
 
@@ -208,7 +213,7 @@ export function ServiceModal({
 
     setLoading(true);
     try {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         name: name.trim(),
         category: finalCategory,
         durationMinutes: Number(durationMinutes),
@@ -233,8 +238,8 @@ export function ServiceModal({
       } else {
         onError(res.message || "Erreur lors de l'enregistrement.");
       }
-    } catch (err: any) {
-      onError(err?.message || "Une erreur inattendue est survenue.");
+    } catch (err) {
+      onError((err instanceof Error ? err.message : "") || "Une erreur inattendue est survenue.");
     } finally {
       setLoading(false);
     }
@@ -464,7 +469,7 @@ export function ServiceModal({
           <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
             <h3 className="mb-1 text-sm font-semibold text-white">Tarifs et Disponibilité par centre (F2.4)</h3>
             <p className="mb-3 text-xs text-white/50">
-              Définissez un prix personnalisé par centre si nécessaire (le prix global de {priceTnd} DT s'applique par défaut).
+              Définissez un prix personnalisé par centre si nécessaire (le prix global de {priceTnd} DT s’applique par défaut).
             </p>
 
             <div className="divide-y divide-white/5">

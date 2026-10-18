@@ -33,8 +33,9 @@ export type ResolvedBookingItem = {
   }[];
 };
 
-function resolvePrice(
-  item: { priceTnd: number; centerPrices?: { centerId: any; priceTnd: number }[] },
+// Tarif du centre s'il est défini, sinon prix global (F2.4).
+export function resolvePrice(
+  item: { priceTnd: number; centerPrices?: { centerId: unknown; priceTnd: number }[] },
   centerId?: string | null,
 ): number {
   if (!centerId || !item.centerPrices || item.centerPrices.length === 0) return item.priceTnd;

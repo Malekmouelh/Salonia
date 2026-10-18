@@ -548,7 +548,8 @@ export async function reorderCatalogAction(
   await connectDB();
   const orgId = new Types.ObjectId(user.organization.id);
 
-  const bulkOps = orderedIds.map((id, index) => ({
+  // Les identifiants invalides sont ignorés (new ObjectId() lèverait une erreur).
+  const bulkOps = orderedIds.filter((id) => Types.ObjectId.isValid(id)).map((id, index) => ({
     updateOne: {
       filter: { _id: new Types.ObjectId(id), organizationId: orgId },
       update: { $set: { sortOrder: index } },
@@ -557,9 +558,9 @@ export async function reorderCatalogAction(
 
   if (bulkOps.length > 0) {
     if (type === "services") {
-      await (Service as any).bulkWrite(bulkOps);
+      await Service.bulkWrite(bulkOps);
     } else {
-      await (Pack as any).bulkWrite(bulkOps);
+      await Pack.bulkWrite(bulkOps);
     }
   }
 
@@ -675,8 +676,8 @@ export async function generateServiceDescriptionAction(input: {
       input.lang ?? "fr",
     );
     return { ok: true, description };
-  } catch (err: any) {
-    return { ok: false, message: err?.message ?? "Erreur lors de la génération de la description." };
+  } catch (err) {
+    return { ok: false, message: (err instanceof Error ? err.message : "") || "Erreur lors de la génération de la description." };
   }
 }
 
@@ -716,8 +717,8 @@ export async function suggestPacksAction(): Promise<{
       })),
     );
     return { ok: true, suggestions };
-  } catch (err: any) {
-    return { ok: false, message: err?.message ?? "Erreur lors de la suggestion de packs." };
+  } catch (err) {
+    return { ok: false, message: (err instanceof Error ? err.message : "") || "Erreur lors de la suggestion de packs." };
   }
 }
 
@@ -751,7 +752,7 @@ export async function analyzePricingAction(): Promise<{
     return { ok: false, message: "Aucune prestation active trouvée pour l'analyse tarifaire." };
   }
 
-  const centers = (centerDocs ?? []).map((c: any) => ({
+  const centers = centerDocs.map((c) => ({
     name: c.name ?? "Centre",
     governorate: c.governorate ?? "TUNIS",
   }));
@@ -775,8 +776,8 @@ export async function analyzePricingAction(): Promise<{
       centers,
     );
     return { ok: true, analysis };
-  } catch (err: any) {
-    return { ok: false, message: err?.message ?? "Erreur lors de l'analyse tarifaire." };
+  } catch (err) {
+    return { ok: false, message: (err instanceof Error ? err.message : "") || "Erreur lors de l'analyse tarifaire." };
   }
 }
 

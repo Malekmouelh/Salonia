@@ -20,8 +20,10 @@ export function AddCenter() {
   useEffect(() => {
     if (!state?.success) return;
     formRef.current?.reset();
-    setPhotos([]);
-    const id = setTimeout(() => setOpen(false), 900);
+    const id = setTimeout(() => {
+      setPhotos([]);
+      setOpen(false);
+    }, 900);
     return () => clearTimeout(id);
   }, [state]);
 
