@@ -46,3 +46,7 @@ next-env.d.ts
 # R�glages locaux
 .claude/
 
+# Documents du projet
+Cahier des charges Salonia.docx
+Salonia-contexte-projet.pdf
+

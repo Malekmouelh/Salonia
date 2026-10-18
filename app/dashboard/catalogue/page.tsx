@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { requireRole } from "@/lib/dal";
-import { DashboardNav } from "@/components/dashboard/nav";
+import { DashboardHeader } from "@/components/dashboard/header";
 import { T } from "@/components/i18n/i18n-provider";
 import { Aurora } from "@/components/ui/aurora";
 import {
@@ -20,9 +20,9 @@ export const metadata = {
 
 export default function CataloguePage() {
   return (
-    <main className="relative min-h-dvh overflow-hidden bg-plum-950 pb-16 pt-8 text-white">
+    <main className="relative min-h-dvh overflow-hidden">
       <Aurora sparkles={false} />
-      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="relative mx-auto max-w-7xl px-4 pb-16 sm:px-8">
         <Suspense fallback={<CatalogueSkeleton />}>
           <CatalogueContent />
         </Suspense>
@@ -87,9 +87,9 @@ async function CatalogueContent() {
 
   return (
     <>
-      <DashboardNav role={user.role} />
+      <DashboardHeader user={user} />
 
-      <div className="mb-8 mt-4 flex flex-col gap-2">
+      <div className="mb-8 mt-6 flex flex-col gap-2 animate-fade-up">
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-rose-gold/15 px-3 py-1 text-xs font-semibold text-rose-gold">
             <T>Module 2 · Catalogue</T>
