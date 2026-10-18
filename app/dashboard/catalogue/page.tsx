@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { requireRole } from "@/lib/dal";
 import { DashboardNav } from "@/components/dashboard/nav";
+import { T } from "@/components/i18n/i18n-provider";
 import { Aurora } from "@/components/ui/aurora";
 import {
   getServicesByOrganization,
@@ -86,16 +87,15 @@ async function CatalogueContent() {
       <div className="mb-8 mt-4 flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-rose-gold/15 px-3 py-1 text-xs font-semibold text-rose-gold">
-            Module 2 · Catalogue
+            <T>Module 2 · Catalogue</T>
           </span>
           <span className="text-xs text-white/40">• {user.organization.name}</span>
         </div>
         <h1 className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
-          Catalogue de prestations & packs
+          <T>Catalogue de prestations & packs</T>
         </h1>
         <p className="max-w-2xl text-sm text-white/60">
-          Configurez vos services, options et suppléments, composez des forfaits attractifs et
-          ajustez les prix selon vos centres en Tunisie.
+          <T>Configurez vos services, options et suppléments, composez des forfaits attractifs et ajustez les prix selon vos centres en Tunisie.</T>
         </p>
       </div>
 

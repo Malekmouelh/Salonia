@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useI18n, T } from "@/components/i18n/i18n-provider";
 import {
   SparkleIcon,
   PlusIcon,
@@ -46,6 +47,7 @@ export function CatalogueManager({
   centers,
   canManage,
 }: CatalogueManagerProps) {
+  const { t, lang } = useI18n();
   const [tab, setTab] = useState<"services" | "packs" | "promotions">("services");
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
@@ -204,33 +206,33 @@ export function CatalogueManager({
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur-md">
           <div className="flex items-center gap-2 text-xs font-medium text-white/50">
             <SparkleIcon width={16} height={16} className="text-blush" />
-            <span>Services au catalogue</span>
+            <span>{t("Services au catalogue")}</span>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="font-display text-2xl font-bold text-white sm:text-3xl">
               {totalServices}
             </span>
-            <span className="text-xs text-emerald-400">({activeServices} actifs)</span>
+            <span className="text-xs text-emerald-400">({activeServices} {t("Actif").toLowerCase()}s)</span>
           </div>
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur-md">
           <div className="flex items-center gap-2 text-xs font-medium text-white/50">
             <TagIcon width={16} height={16} className="text-champagne" />
-            <span>Packs & Forfaits</span>
+            <span>{t("Packs & Forfaits")}</span>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="font-display text-2xl font-bold text-white sm:text-3xl">
               {totalPacks}
             </span>
-            <span className="text-xs text-white/40">combinés</span>
+            <span className="text-xs text-white/40">{t("Packs")}</span>
           </div>
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur-md">
           <div className="flex items-center gap-2 text-xs font-medium text-white/50">
             <WalletIcon width={16} height={16} className="text-rose-gold" />
-            <span>Prix moyen prestation</span>
+            <span>{t("Prix moyen prestation")}</span>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="font-display text-2xl font-bold text-white sm:text-3xl">
@@ -243,13 +245,13 @@ export function CatalogueManager({
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur-md">
           <div className="flex items-center gap-2 text-xs font-medium text-white/50">
             <TagIcon width={16} height={16} className="text-emerald-400" />
-            <span>Offres & Promos (F2.7)</span>
+            <span>{t("Offres & Promos (F2.7)")}</span>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="font-display text-2xl font-bold text-white sm:text-3xl">
               {activePromos}
             </span>
-            <span className="text-xs text-emerald-400">actives</span>
+            <span className="text-xs text-emerald-400">{t("Actif").toLowerCase()}s</span>
           </div>
         </div>
       </div>
@@ -266,7 +268,7 @@ export function CatalogueManager({
             }`}
           >
             <SparkleIcon width={14} height={14} />
-            Services ({initialServices.length})
+            {t("Services au catalogue")} ({initialServices.length})
           </button>
           <button
             onClick={() => setTab("packs")}
@@ -277,7 +279,7 @@ export function CatalogueManager({
             }`}
           >
             <TagIcon width={14} height={14} />
-            Packs & Forfaits ({initialPacks.length})
+            {t("Packs & Forfaits")} ({initialPacks.length})
           </button>
           <button
             onClick={() => setTab("promotions")}
@@ -288,7 +290,7 @@ export function CatalogueManager({
             }`}
           >
             <TagIcon width={14} height={14} />
-            Promotions ({initialPromotions.length})
+            {t("Offres & Promos")} ({initialPromotions.length})
           </button>
         </div>
 
@@ -303,7 +305,7 @@ export function CatalogueManager({
                 className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blush to-champagne px-4 py-2.5 text-xs font-bold text-plum-950 shadow-lg shadow-blush/20 transition hover:opacity-95"
               >
                 <PlusIcon width={16} height={16} />
-                Nouveau service
+                {t("Nouveau service")}
               </button>
             )}
             {tab === "packs" && (
@@ -315,7 +317,7 @@ export function CatalogueManager({
                 className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blush to-champagne px-4 py-2.5 text-xs font-bold text-plum-950 shadow-lg shadow-blush/20 transition hover:opacity-95"
               >
                 <PlusIcon width={16} height={16} />
-                Nouveau pack
+                {t("Nouveau pack")}
               </button>
             )}
             {tab === "promotions" && (
@@ -324,7 +326,7 @@ export function CatalogueManager({
                 className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blush to-champagne px-4 py-2.5 text-xs font-bold text-plum-950 shadow-lg shadow-blush/20 transition hover:opacity-95"
               >
                 <PlusIcon width={16} height={16} />
-                Nouvelle promotion
+                {t("Nouvelle promotion")}
               </button>
             )}
           </div>
@@ -339,7 +341,7 @@ export function CatalogueManager({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Rechercher par nom, catégorie, description..."
+            placeholder={t("Rechercher par nom, catégorie, description...")}
             className="w-full rounded-xl border border-white/10 bg-white/5 py-2 pe-4 ps-9 text-xs text-white placeholder-white/40 focus:border-rose-gold/60 focus:bg-white/10 focus:outline-none"
           />
         </div>
@@ -350,10 +352,10 @@ export function CatalogueManager({
             onChange={(e) => setSelectedCategory(e.target.value)}
             className="rounded-xl border border-white/10 bg-plum-950 px-3 py-2 text-xs text-white focus:outline-none"
           >
-            <option value="ALL">Toutes les catégories</option>
+            <option value="ALL">{t("Toutes les catégories")}</option>
             {categories.map((c) => (
               <option key={c} value={c}>
-                {c}
+                {t(c)}
               </option>
             ))}
           </select>
@@ -365,7 +367,7 @@ export function CatalogueManager({
             onChange={(e) => setSelectedCenter(e.target.value)}
             className="rounded-xl border border-white/10 bg-plum-950 px-3 py-2 text-xs text-white focus:outline-none"
           >
-            <option value="ALL">Tous les centres</option>
+            <option value="ALL">{t("Tous les centres")}</option>
             {centers.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -381,7 +383,7 @@ export function CatalogueManager({
             onChange={(e) => setOnlyActive(e.target.checked)}
             className="rounded border-white/20 bg-white/10 text-rose-gold focus:ring-0"
           />
-          Actifs uniquement
+          {t("Actifs uniquement")}
         </label>
       </div>
 
