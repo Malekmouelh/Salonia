@@ -129,8 +129,8 @@ export function PromotionModal({
             </label>
             <input
               type="number"
-              min={0.1}
-              step={type === "PERCENTAGE" ? 1 : 0.5}
+              min={1}
+              step={1}
               required
               value={value}
               onChange={(e) => setValue(Number(e.target.value))}

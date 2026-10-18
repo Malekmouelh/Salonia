@@ -227,7 +227,7 @@ export function PackModal({
                 <input
                   type="number"
                   min={0}
-                  step={0.5}
+                  step={1}
                   required
                   value={priceTnd}
                   onChange={(e) => setPriceTnd(Number(e.target.value))}
@@ -316,7 +316,7 @@ export function PackModal({
                       <input
                         type="number"
                         min={0}
-                        step={0.5}
+                        step={1}
                         placeholder={String(priceTnd)}
                         value={currentCenterPrice !== undefined ? currentCenterPrice : ""}
                         onChange={(e) => handleCenterPriceChange(c.id, e.target.value)}
