@@ -13,6 +13,10 @@ export type Governorate = (typeof GOVERNORATE_CODES)[number];
 export const AUTH_EVENT_TYPES = [
   "LOGIN_SUCCESS", "LOGIN_FAILED", "LOGIN_LOCKED", "LOGOUT", "REGISTER",
   "PASSWORD_RESET_REQUEST", "PASSWORD_RESET", "CENTER_CREATED", "AI_SETUP_APPLIED",
+  // Module 2 : catalogue
+  "SERVICE_CREATED", "SERVICE_UPDATED", "SERVICE_DELETED",
+  "PACK_CREATED", "PACK_UPDATED", "PACK_DELETED",
+  "PROMOTION_CREATED", "PROMOTION_UPDATED", "PROMOTION_DELETED",
   // Module 3
   "BOOKING_CREATED", "BOOKING_CANCELLED", "BOOKING_RESCHEDULED", "REMINDERS_SENT",
   // Module 6
@@ -20,6 +24,10 @@ export const AUTH_EVENT_TYPES = [
   "EXPENSE_CREATED", "EXPENSE_DELETED", "FINANCE_EXPORTED",
 ] as const;
 export type AuthEventType = (typeof AUTH_EVENT_TYPES)[number];
+
+// Module 2 : catalogue & promotions
+export const PROMOTION_TYPES = ["PERCENTAGE", "FIXED_AMOUNT"] as const;
+export type PromotionType = (typeof PROMOTION_TYPES)[number];
 
 // Module 3 : réservations
 export const BOOKING_STATUSES = ["PENDING", "CONFIRMED", "COMPLETED", "CANCELLED", "NO_SHOW"] as const;

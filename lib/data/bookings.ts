@@ -172,24 +172,51 @@ export async function getCatalog(organizationId: string, centerId?: string | nul
     ? { $or: [{ centerIds: { $size: 0 } }, { centerIds: new Types.ObjectId(centerId) }] }
     : {};
   const [services, packs] = await Promise.all([
-    Service.find({ organizationId, active: true, ...centerFilter }).sort({ category: 1, name: 1 }).lean(),
-    Pack.find({ organizationId, active: true }).populate<{ serviceIds: { _id: Types.ObjectId; name: string; durationMinutes: number }[] }>("serviceIds", "name durationMinutes").lean(),
+    Service.find({ organizationId, active: true, ...centerFilter }).sort({ sortOrder: 1, category: 1, name: 1 }).lean(),
+    Pack.find({ organizationId, active: true, ...centerFilter })
+      .populate<{ serviceIds: { _id: Types.ObjectId; name: string; durationMinutes: number }[] }>("serviceIds", "name durationMinutes")
+      .sort({ sortOrder: 1, name: 1 })
+      .lean(),
   ]);
+
+  function resolvePrice(item: { priceTnd: number; centerPrices?: { centerId: any; priceTnd: number }[] }): number {
+    if (!centerId || !item.centerPrices || item.centerPrices.length === 0) return item.priceTnd;
+    const match = item.centerPrices.find((cp) => String(cp.centerId) === String(centerId));
+    return match !== undefined ? match.priceTnd : item.priceTnd;
+  }
+
   const serviceOptions: ServiceOption[] = services.map((s) => ({
     id: String(s._id),
     name: s.name,
     category: s.category,
     durationMinutes: s.durationMinutes,
-    priceTnd: s.priceTnd,
+    priceTnd: resolvePrice(s),
+    description: s.description ?? "",
+    photos: (s.photos ?? []).map(String),
+    options: (s.options ?? []).map((o) => ({
+      name: o.name,
+      values: (o.values ?? []).map((v) => ({
+        label: v.label,
+        extraPriceTnd: v.extraPriceTnd ?? 0,
+        extraDurationMinutes: v.extraDurationMinutes ?? 0,
+      })),
+    })),
   }));
-  const packOptions: PackOption[] = packs.map((p) => ({
-    id: String(p._id),
-    name: p.name,
-    priceTnd: p.priceTnd,
-    durationMinutes: p.serviceIds.reduce((sum, s) => sum + s.durationMinutes, 0),
-    serviceIds: p.serviceIds.map((s) => String(s._id)),
-    serviceNames: p.serviceIds.map((s) => s.name),
-  }));
+
+  const packOptions: PackOption[] = packs.map((p) => {
+    const validServices = (p.serviceIds ?? []).filter((s) => s && s._id);
+    return {
+      id: String(p._id),
+      name: p.name,
+      priceTnd: resolvePrice(p),
+      durationMinutes: validServices.reduce((sum, s) => sum + s.durationMinutes, 0),
+      serviceIds: validServices.map((s) => String(s._id)),
+      serviceNames: validServices.map((s) => s.name),
+      description: p.description ?? "",
+      photos: (p.photos ?? []).map(String),
+    };
+  });
+
   return { services: serviceOptions, packs: packOptions };
 }
 

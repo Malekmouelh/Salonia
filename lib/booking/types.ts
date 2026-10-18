@@ -51,8 +51,29 @@ export type CalendarData = {
   model: { source: "trained" | "prior"; trainedOn: number; accuracy: number | null; baseRate: number };
 };
 
-export type ServiceOption = { id: string; name: string; category: string; durationMinutes: number; priceTnd: number };
-export type PackOption = { id: string; name: string; priceTnd: number; durationMinutes: number; serviceIds: string[]; serviceNames: string[] };
+export type ServiceOption = {
+  id: string;
+  name: string;
+  category: string;
+  durationMinutes: number;
+  priceTnd: number;
+  description?: string;
+  photos?: string[];
+  options?: {
+    name: string;
+    values: { label: string; extraPriceTnd: number; extraDurationMinutes: number }[];
+  }[];
+};
+export type PackOption = {
+  id: string;
+  name: string;
+  priceTnd: number;
+  durationMinutes: number;
+  serviceIds: string[];
+  serviceNames: string[];
+  description?: string;
+  photos?: string[];
+};
 
 export type FillSuggestion = {
   day: string;

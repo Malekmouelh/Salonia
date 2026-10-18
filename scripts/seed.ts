@@ -8,7 +8,7 @@ import mongoose from "mongoose";
 import { connectDB } from "../lib/db";
 import { addDays, addMinutes, fromLocal, hhmmToMinutes, toLocal, WEEKDAYS, type Weekday } from "../lib/booking/time";
 import { AvailabilityBlock, Booking, Customer, Notification, WaitlistEntry } from "../lib/models/booking";
-import { Pack, Service } from "../lib/models/catalog";
+import { Pack, Promotion, Service } from "../lib/models/catalog";
 import { AuthEvent, Center, Organization, PasswordResetToken, User } from "../lib/models/core";
 import { Expense, Invoice, Payment } from "../lib/models/finance";
 import { seedFinance } from "./seed-finance";
@@ -42,7 +42,7 @@ async function main() {
   if (old) {
     const filter = { organizationId: old._id };
     await Promise.all([
-      Center.deleteMany(filter), Service.deleteMany(filter), Pack.deleteMany(filter), Customer.deleteMany(filter),
+      Center.deleteMany(filter), Service.deleteMany(filter), Pack.deleteMany(filter), Promotion.deleteMany(filter), Customer.deleteMany(filter),
       Booking.deleteMany(filter), AvailabilityBlock.deleteMany(filter), WaitlistEntry.deleteMany(filter),
       Notification.deleteMany(filter), AuthEvent.deleteMany(filter),
       Payment.deleteMany(filter), Invoice.deleteMany(filter), Expense.deleteMany(filter),
@@ -56,7 +56,7 @@ async function main() {
 
   // Index déclarés dans les modèles (uniques, TTL…).
   await Promise.all(
-    [Organization, Center, User, PasswordResetToken, AuthEvent, Service, Pack, Customer, Booking,
+    [Organization, Center, User, PasswordResetToken, AuthEvent, Service, Pack, Promotion, Customer, Booking,
       AvailabilityBlock, WaitlistEntry, Notification].map((m) => m.createIndexes()),
   );
 
@@ -105,15 +105,73 @@ async function main() {
       ["Maquillage soirée", "Maquillage", 60, 80],
   ];
   const services = await Service.create(
-    SERVICES.map(([name, category, durationMinutes, priceTnd]) => ({
-      organizationId: org._id, name, category, durationMinutes, priceTnd,
-    })),
+    SERVICES.map(([name, category, durationMinutes, priceTnd]) => {
+      const extra: any = {};
+      if (name === "Brushing") {
+        extra.description = "Brushing lisse ou wavy haute brillance adapté à la nature de vos cheveux.";
+        extra.options = [
+          {
+            name: "Longueur des cheveux",
+            values: [
+              { label: "Cheveux courts", extraPriceTnd: 0, extraDurationMinutes: 0 },
+              { label: "Cheveux mi-longs", extraPriceTnd: 5, extraDurationMinutes: 10 },
+              { label: "Cheveux longs", extraPriceTnd: 10, extraDurationMinutes: 15 },
+            ],
+          },
+        ];
+        extra.requiredSkills = ["Coiffure"];
+      } else if (name === "Coupe femme") {
+        extra.description = "Diagnostic morphologique, shampoing traitant, coupe stylisée et séchage.";
+        extra.requiredSkills = ["Coiffure"];
+      } else if (name === "Coloration" || name === "Balayage") {
+        extra.description = "Coloration lumineuse respectant la fibre capillaire avec produits professionnels.";
+        extra.requiredSkills = ["Coloriste"];
+        extra.requiredEquipment = ["Bac shampoing", "Casque chauffant"];
+      }
+      return {
+        organizationId: org._id,
+        name,
+        category,
+        durationMinutes,
+        priceTnd,
+        ...extra,
+      };
+    }),
   );
   const byName = (n: string) => services.find((s) => s.name === n)!;
   await Pack.create([
-    { organizationId: org._id, name: "Pack Mariée", serviceIds: [byName("Soin visage éclat")._id, byName("Maquillage soirée")._id, byName("Brushing")._id], priceTnd: 160 },
-    { organizationId: org._id, name: "Pack Détente", serviceIds: [byName("Manucure")._id, byName("Soin visage éclat")._id], priceTnd: 85 },
+    {
+      organizationId: org._id,
+      name: "Pack Mariée Royale",
+      description: "La formule prestige pour briller lors du plus beau jour de votre vie.",
+      serviceIds: [byName("Soin visage éclat")._id, byName("Maquillage soirée")._id, byName("Brushing")._id],
+      priceTnd: 160,
+    },
+    {
+      organizationId: org._id,
+      name: "Pack Détente & Beauté",
+      description: "Pause bien-être complète comprenant manucure soignée et soin visage coup d'éclat.",
+      serviceIds: [byName("Manucure")._id, byName("Soin visage éclat")._id],
+      priceTnd: 85,
+    },
   ]);
+
+  // Promotion de lancement
+  const promoStart = new Date();
+  const promoEnd = new Date();
+  promoEnd.setDate(promoStart.getDate() + 30);
+  await Promotion.create({
+    organizationId: org._id,
+    name: "Offre Bienvenue Salonia",
+    code: "BIENVENUE20",
+    type: "PERCENTAGE",
+    value: 20,
+    startsAt: promoStart,
+    endsAt: promoEnd,
+    maxUses: 100,
+    usedCount: 14,
+    active: true,
+  });
 
   // ── Clients : 15 % « à risque » (absences fréquentes) ──
   const usedPhones = new Set<string>();
