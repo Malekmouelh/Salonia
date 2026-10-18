@@ -25,10 +25,14 @@ import {
   togglePromotionAction,
   deletePromotionAction,
   importCatalogDraftAction,
+  suggestPacksAction,
+  analyzePricingAction,
 } from "@/app/actions/catalog";
 import { ServiceModal } from "./service-modal";
 import { PackModal } from "./pack-modal";
 import { PromotionModal } from "./promotion-modal";
+import { PackSuggestionsModal, PricingAnalysisModal } from "./ai-modals";
+import type { PackSuggestion, PricingAnalysisResult } from "@/lib/ai/catalog-ai";
 import type { ServiceDetail, PackDetail, PromotionDetail } from "@/lib/data/catalog";
 
 interface CatalogueManagerProps {
@@ -65,6 +69,88 @@ export function CatalogueManager({
   const [editingPack, setEditingPack] = useState<PackDetail | null>(null);
 
   const [promotionModalOpen, setPromotionModalOpen] = useState(false);
+
+  // AI Modals state (Tâches 9 & 10)
+  const [aiPacksModalOpen, setAiPacksModalOpen] = useState(false);
+  const [aiPacksLoading, setAiPacksLoading] = useState(false);
+  const [packSuggestions, setPackSuggestions] = useState<PackSuggestion[]>([]);
+
+  const [pricingModalOpen, setPricingModalOpen] = useState(false);
+  const [pricingLoading, setPricingLoading] = useState(false);
+  const [pricingAnalysis, setPricingAnalysis] = useState<PricingAnalysisResult | null>(null);
+
+  // Map serviceId -> nom pour affichage clair dans les suggestions
+  const serviceNamesMap = initialServices.reduce<Record<string, string>>((acc, s) => {
+    acc[s.id] = s.name;
+    return acc;
+  }, {});
+
+  const handleOpenPackSuggestions = async () => {
+    setAiPacksModalOpen(true);
+    setAiPacksLoading(true);
+    try {
+      const res = await suggestPacksAction();
+      if (res.ok && res.suggestions) {
+        setPackSuggestions(res.suggestions);
+      } else {
+        showError(res.message || "Impossible de générer des suggestions.");
+      }
+    } catch {
+      showError("Erreur lors de la génération des suggestions.");
+    } finally {
+      setAiPacksLoading(false);
+    }
+  };
+
+  const handleApplyPackSuggestion = (sug: PackSuggestion) => {
+    setAiPacksModalOpen(false);
+    const selectedServices = initialServices.filter((s) => sug.serviceIds.includes(s.id));
+    const totalDuration = selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0);
+
+    setEditingPack({
+      id: "",
+      name: sug.name,
+      description: sug.description,
+      priceTnd: sug.priceTnd,
+      photos: [],
+      centerIds: [],
+      centerPrices: [],
+      serviceIds: sug.serviceIds,
+      services: selectedServices.map((s) => ({
+        id: s.id,
+        name: s.name,
+        durationMinutes: s.durationMinutes,
+        priceTnd: s.priceTnd,
+        category: s.category,
+      })),
+      totalDurationMinutes: totalDuration,
+      regularTotalTnd: sug.regularPriceTnd,
+      savingsTnd: sug.savingsTnd,
+      savingsPercent: sug.savingsPercent,
+      active: true,
+      sortOrder: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    setPackModalOpen(true);
+  };
+
+  const handleOpenPricingAnalysis = async () => {
+    setPricingModalOpen(true);
+    setPricingLoading(true);
+    try {
+      const res = await analyzePricingAction();
+      if (res.ok && res.analysis) {
+        setPricingAnalysis(res.analysis);
+      } else {
+        showError(res.message || "Impossible de réaliser l'audit.");
+      }
+    } catch {
+      showError("Erreur lors de l'analyse tarifaire.");
+    } finally {
+      setPricingLoading(false);
+    }
+  };
 
   // Toast feedback
   const [toast, setToast] = useState<{ tone: "success" | "error"; message: string } | null>(null);
@@ -355,7 +441,27 @@ export function CatalogueManager({
         </div>
 
         {canManage && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleOpenPricingAnalysis}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-rose-gold/40 bg-rose-gold/10 px-3.5 py-2.5 text-xs font-semibold text-rose-gold backdrop-blur-md transition hover:bg-rose-gold/20"
+              title={t("Audit tarifaire IA")}
+            >
+              <SparkleIcon width={14} height={14} />
+              {t("Audit tarifaire IA")}
+            </button>
+
+            {tab === "packs" && (
+              <button
+                onClick={handleOpenPackSuggestions}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-champagne/40 bg-champagne/10 px-3.5 py-2.5 text-xs font-semibold text-champagne backdrop-blur-md transition hover:bg-champagne/20"
+                title={t("Suggérer des packs IA")}
+              >
+                <SparkleIcon width={14} height={14} />
+                {t("Suggérer des packs IA")}
+              </button>
+            )}
+
             {tab === "services" && (
               <button
                 onClick={() => {
@@ -887,6 +993,23 @@ export function CatalogueManager({
         centers={centers}
         onSaved={showSuccess}
         onError={showError}
+      />
+
+      {/* Modales IA */}
+      <PackSuggestionsModal
+        open={aiPacksModalOpen}
+        onClose={() => setAiPacksModalOpen(false)}
+        suggestions={packSuggestions}
+        loading={aiPacksLoading}
+        serviceNamesMap={serviceNamesMap}
+        onApply={handleApplyPackSuggestion}
+      />
+
+      <PricingAnalysisModal
+        open={pricingModalOpen}
+        onClose={() => setPricingModalOpen(false)}
+        analysis={pricingAnalysis}
+        loading={pricingLoading}
       />
     </div>
   );

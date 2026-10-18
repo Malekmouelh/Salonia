@@ -3,6 +3,9 @@
 Next.js 16 (App Router) · TypeScript · Tailwind CSS 4 · **MongoDB Atlas (Mongoose)** · Zod · Claude (IA)
 
 - **Socle** (travail de groupe) : comptes, rôles, multi-centres, journal de sécurité, FR/AR, PWA.
+- **Module 2 — Catalogue et prestations (Maya)** : catalogue complet (services, packs, offres promotionnelles),
+  options avec suppléments prix/durée, tarification différenciée par centre, codes promo avec validation interactive,
+  galerie photos WebP, et IA : rédaction marketing de prestations, suggestion de forfaits intelligents, audit tarifaire.
 - **Module 3 — Calendrier et réservations (Malek)** : calendrier jour/semaine/mois, disponibilités,
   réservation en ligne en 4 étapes, rappels, annulations, reports, liste d'attente, fiches clients,
   et IA : prédiction des absences, créneaux à remplir, chatbot de réservation.
@@ -49,6 +52,30 @@ puis `MONGODB_URI="mongodb://127.0.0.1:27017"` dans `.env`.
 | Super admin | admin@salonia.tn |
 
 Page de réservation publique : `/reserver/salon-yasmine`
+
+## Module 2 — Catalogue et prestations
+
+| Exigence | Où |
+|---|---|
+| F2.1 Gestion des services (catégories, durée, tarif de base, description, photos) | `/dashboard/catalogue` (onglet Services) |
+| F2.2 Options de services (variantes avec suppléments de prix et de durée) | Dans le formulaire de service (`ServiceModal`) |
+| F2.3 Tarification différenciée par centre | Surcharge de prix par centre dans `ServiceModal` et `PackModal` |
+| F2.4 Forfaits & Packs multi-services avec calcul automatique des économies | `/dashboard/catalogue` (onglet Packs) |
+| F2.5 Compétences requises et matériels nécessaires par prestation | `ServiceModal` (liaison Staff & Équipements) |
+| F2.6 Importation automatique du catalogue initial généré par IA | Bannière interactive sur `/dashboard/catalogue` |
+| F2.7 Offres promotionnelles & Codes promo (pourcentages, montants fixes, validité, plafonds) | `/dashboard/catalogue` (onglet Promotions) |
+| F2.8 Galerie photos et compression WebP côté client | `ImageUploader` intégré dans chaque modal |
+| F2.9 Application dynamique dans le parcours de réservation client | `/reserver/[slug]` (`BookingWizard`) |
+
+**IA du module 2** (cahier des charges §6) :
+- **Rédaction marketing de prestations** : Génération de descriptions professionnelles et valorisantes par Claude via le bouton `✨ Générer avec l'IA` dans `ServiceModal` (`lib/ai/catalog-ai.ts`). Repli par templates contextuels hors-ligne.
+- **Suggestion intelligente de packs** : Analyse automatisée des prestations actives pour concevoir des offres groupées cohérentes et attractives, calcul des réductions optimales et pré-remplissage en 1 clic dans `PackModal`.
+- **Audit & recommandations tarifaires** : Évaluation globale de la grille tarifaire (prix moyen, rendement horaire DT/h, diversité des univers de beauté, benchmark selon la localisation géographique en Tunisie) avec synthèse et opportunités d'optimisation du panier moyen.
+
+**Règles métier & intégration** :
+- **Calcul précis des réservations** : `resolveItems()` calcule la durée cumulée exacte (durée de base + suppléments d'options) et le prix unitaire ajusté (prix spécifique au centre + suppléments d'options).
+- **Validation serveur des codes promo** : Vérification de la période de validité, du centre éligible, du plafond d'utilisations (`maxUses`), et incrémentation atomique du compteur `usedCount`.
+- **Traductions complètes** : Expérience 100% bilingue français / arabe (RTL natif).
 
 ## Module 3 — Calendrier et réservations
 

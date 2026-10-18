@@ -645,3 +645,138 @@ export async function importCatalogDraftAction(): Promise<ImportDraftResult> {
     imported: { services: created.length, packs: 0 },
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FONCTIONNALITÉS IA (Tâches 8, 9, 10)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Tâche 8 : Génération de description marketing d'une prestation
+ */
+export async function generateServiceDescriptionAction(input: {
+  name: string;
+  category: string;
+  durationMinutes: number;
+  priceTnd: number;
+  options?: { name: string; values: { label: string }[] }[];
+  lang?: string;
+}): Promise<{ ok: boolean; description?: string; message?: string }> {
+  await requireRole("OWNER", "MANAGER", "STAFF");
+  try {
+    const { generateServiceDescription } = await import("@/lib/ai/catalog-ai");
+    const description = await generateServiceDescription(
+      {
+        name: input.name,
+        category: input.category,
+        durationMinutes: input.durationMinutes,
+        priceTnd: input.priceTnd,
+        options: input.options,
+      },
+      input.lang ?? "fr",
+    );
+    return { ok: true, description };
+  } catch (err: any) {
+    return { ok: false, message: err?.message ?? "Erreur lors de la génération de la description." };
+  }
+}
+
+/**
+ * Tâche 9 : Suggestion intelligente de packs basés sur le catalogue
+ */
+export async function suggestPacksAction(): Promise<{
+  ok: boolean;
+  suggestions?: import("@/lib/ai/catalog-ai").PackSuggestion[];
+  message?: string;
+}> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: "Organisation introuvable." };
+
+  await connectDB();
+  const services = await Service.find({ organizationId: user.organization.id, active: true })
+    .select("_id name category priceTnd durationMinutes")
+    .sort({ sortOrder: 1, name: 1 })
+    .lean();
+
+  if (services.length < 2) {
+    return {
+      ok: false,
+      message: "Ajoutez au moins 2 prestations au catalogue avant de demander des suggestions de packs.",
+    };
+  }
+
+  try {
+    const { suggestPacks } = await import("@/lib/ai/catalog-ai");
+    const suggestions = await suggestPacks(
+      services.map((s) => ({
+        id: String(s._id),
+        name: s.name,
+        category: s.category,
+        priceTnd: s.priceTnd,
+        durationMinutes: s.durationMinutes,
+      })),
+    );
+    return { ok: true, suggestions };
+  } catch (err: any) {
+    return { ok: false, message: err?.message ?? "Erreur lors de la suggestion de packs." };
+  }
+}
+
+/**
+ * Tâche 10 : Analyse et recommandations tarifaires IA
+ */
+export async function analyzePricingAction(): Promise<{
+  ok: boolean;
+  analysis?: import("@/lib/ai/catalog-ai").PricingAnalysisResult;
+  message?: string;
+}> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: "Organisation introuvable." };
+
+  await connectDB();
+  const orgId = user.organization.id;
+
+  const { Center } = await import("@/lib/models/core");
+
+  const [services, packs, centerDocs] = await Promise.all([
+    Service.find({ organizationId: orgId, active: true })
+      .select("_id name category priceTnd durationMinutes")
+      .lean(),
+    Pack.find({ organizationId: orgId, active: true })
+      .select("_id name priceTnd serviceIds")
+      .lean(),
+    Center.find({ organizationId: orgId }).select("name governorate").lean(),
+  ]);
+
+  if (services.length === 0) {
+    return { ok: false, message: "Aucune prestation active trouvée pour l'analyse tarifaire." };
+  }
+
+  const centers = (centerDocs ?? []).map((c: any) => ({
+    name: c.name ?? "Centre",
+    governorate: c.governorate ?? "TUNIS",
+  }));
+
+  try {
+    const { analyzePricing } = await import("@/lib/ai/catalog-ai");
+    const analysis = await analyzePricing(
+      services.map((s) => ({
+        id: String(s._id),
+        name: s.name,
+        category: s.category,
+        priceTnd: s.priceTnd,
+        durationMinutes: s.durationMinutes,
+      })),
+      packs.map((p) => ({
+        id: String(p._id),
+        name: p.name,
+        priceTnd: p.priceTnd,
+        serviceIds: (p.serviceIds ?? []).map(String),
+      })),
+      centers,
+    );
+    return { ok: true, analysis };
+  } catch (err: any) {
+    return { ok: false, message: err?.message ?? "Erreur lors de l'analyse tarifaire." };
+  }
+}
+

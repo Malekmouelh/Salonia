@@ -63,6 +63,7 @@ export type ServiceOption = {
     name: string;
     values: { label: string; extraPriceTnd: number; extraDurationMinutes: number }[];
   }[];
+  centerPrices?: { centerId: string; priceTnd: number }[];
 };
 export type PackOption = {
   id: string;
@@ -75,6 +76,14 @@ export type PackOption = {
   photos?: string[];
   savingsTnd?: number;
   savingsPercent?: number;
+  centerPrices?: { centerId: string; priceTnd: number }[];
+};
+
+export type BookingSelectedOption = {
+  optionName: string;
+  label: string;
+  extraPriceTnd: number;
+  extraDurationMinutes: number;
 };
 
 export type FillSuggestion = {

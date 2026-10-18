@@ -201,6 +201,7 @@ export async function getCatalog(organizationId: string, centerId?: string | nul
         extraDurationMinutes: v.extraDurationMinutes ?? 0,
       })),
     })),
+    centerPrices: (s.centerPrices ?? []).map((cp) => ({ centerId: String(cp.centerId), priceTnd: cp.priceTnd })),
   }));
 
   const packOptions: PackOption[] = packs.map((p) => {
@@ -220,6 +221,7 @@ export async function getCatalog(organizationId: string, centerId?: string | nul
       photos: (p.photos ?? []).map(String),
       savingsTnd: savingsTnd > 0 ? savingsTnd : undefined,
       savingsPercent: savingsPercent > 0 ? savingsPercent : undefined,
+      centerPrices: (p.centerPrices ?? []).map((cp) => ({ centerId: String(cp.centerId), priceTnd: cp.priceTnd })),
     };
   });
 

@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { Modal } from "@/components/ui/modal";
-import { PlusIcon, TrashIcon, ClockIcon, WalletIcon } from "@/components/ui/icons";
+import { PlusIcon, TrashIcon, ClockIcon, WalletIcon, SparkleIcon } from "@/components/ui/icons";
 import { ImageUploader } from "@/components/ui/image-uploader";
-import { saveServiceAction } from "@/app/actions/catalog";
+import { saveServiceAction, generateServiceDescriptionAction } from "@/app/actions/catalog";
+import { useI18n } from "@/components/i18n/i18n-provider";
 import type { ServiceDetail, ServiceOptionItem } from "@/lib/data/catalog";
 
 interface ServiceModalProps {
@@ -26,7 +27,9 @@ export function ServiceModal({
   onSaved,
   onError,
 }: ServiceModalProps) {
+  const { t, lang } = useI18n();
   const [loading, setLoading] = useState(false);
+  const [generatingAiDesc, setGeneratingAiDesc] = useState(false);
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
   const [customCategory, setCustomCategory] = useState("");
@@ -41,6 +44,32 @@ export function ServiceModal({
   const [equipment, setEquipment] = useState<string[]>([]);
   const [equipmentInput, setEquipmentInput] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
+
+  const handleGenerateAiDescription = async () => {
+    if (!name.trim()) {
+      onError("Veuillez renseigner le nom de la prestation d'abord.");
+      return;
+    }
+    const finalCategory = category === "__NEW__" ? customCategory.trim() : category.trim();
+    setGeneratingAiDesc(true);
+    try {
+      const res = await generateServiceDescriptionAction({
+        name: name.trim(),
+        category: finalCategory || "Général",
+        durationMinutes,
+        priceTnd,
+        options,
+        lang,
+      });
+      if (res.ok && res.description) {
+        setDescription(res.description);
+      } else {
+        onError(res.message || "Impossible de générer la description.");
+      }
+    } finally {
+      setGeneratingAiDesc(false);
+    }
+  };
 
   useEffect(() => {
     if (service) {
@@ -302,14 +331,25 @@ export function ServiceModal({
 
         {/* Description & Médias */}
         <div>
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-white/70">
-            Description détaillée (vitrine publique)
-          </label>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-white/70">
+              {t("Description détaillée (vitrine publique)")}
+            </label>
+            <button
+              type="button"
+              onClick={handleGenerateAiDescription}
+              disabled={generatingAiDesc || !name.trim()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-champagne/30 bg-champagne/10 px-2.5 py-1 text-xs font-semibold text-champagne hover:bg-champagne/20 transition disabled:opacity-40"
+            >
+              <SparkleIcon width={12} height={12} className={generatingAiDesc ? "animate-spin" : ""} />
+              {generatingAiDesc ? t("Génération…") : t("Générer avec l'IA")}
+            </button>
+          </div>
           <textarea
             rows={2}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Détails du soin, bienfaits, étapes, produits utilisés..."
+            placeholder={t("Détails du soin, bienfaits, étapes, produits utilisés...")}
             className="w-full rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white placeholder-white/30 focus:border-rose-gold/60 focus:outline-none"
           />
         </div>
