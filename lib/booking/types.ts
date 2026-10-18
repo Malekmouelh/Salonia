@@ -73,6 +73,8 @@ export type PackOption = {
   serviceNames: string[];
   description?: string;
   photos?: string[];
+  savingsTnd?: number;
+  savingsPercent?: number;
 };
 
 export type FillSuggestion = {

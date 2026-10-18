@@ -211,6 +211,15 @@ function StepServices({ salon, choice, setChoice }: { salon: PublicSalon; choice
                   className={`group relative overflow-hidden rounded-2xl border p-4 text-start transition ${active ? "border-champagne bg-champagne/10" : "border-champagne/20 bg-white/[0.03] hover:border-champagne/50"}`}
                 >
                   <div className="absolute -end-6 -top-6 h-20 w-20 rounded-full bg-champagne/10 blur-xl" />
+                  {/* Badge économies */}
+                  {p.savingsTnd && p.savingsTnd > 0 && (
+                    <div className="absolute end-3 top-3 flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400 ring-1 ring-emerald-500/30">
+                      <span>−{p.savingsTnd} DT</span>
+                      {p.savingsPercent && p.savingsPercent > 0 && (
+                        <span className="text-emerald-300/70">({p.savingsPercent}%)</span>
+                      )}
+                    </div>
+                  )}
                   <div className="flex gap-3">
                     {p.photos && p.photos.length > 0 && (
                       <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-white/10">

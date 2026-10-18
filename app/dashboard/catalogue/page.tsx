@@ -9,6 +9,8 @@ import {
   getCategories,
   getPromotionsByOrganization,
 } from "@/lib/data/catalog";
+import { connectDB } from "@/lib/db";
+import { Organization } from "@/lib/models/core";
 import { CatalogueManager } from "@/components/catalog/catalogue-manager";
 
 export const metadata = {
@@ -62,12 +64,15 @@ async function CatalogueContent() {
   const organizationId = user.organization.id;
   const centers = user.organization.centers.map((c) => ({ id: c.id, name: c.name }));
 
-  const [services, packs, categories, promotions] = await Promise.all([
+  const [services, packs, categories, promotions, orgDoc] = await Promise.all([
     getServicesByOrganization(organizationId),
     getPacksByOrganization(organizationId),
     getCategories(organizationId),
     getPromotionsByOrganization(organizationId),
+    (async () => { await connectDB(); return Organization.findById(organizationId).select("catalogDraft").lean(); })(),
   ]);
+
+  const hasCatalogDraft = !!(orgDoc?.catalogDraft as { services?: unknown[] } | null)?.services?.length;
 
   const defaultCategories = [
     "Coiffure & Coupe",
@@ -106,6 +111,7 @@ async function CatalogueContent() {
         categories={combinedCategories}
         centers={centers}
         canManage={user.role === "OWNER" || user.role === "MANAGER"}
+        hasCatalogDraft={hasCatalogDraft}
       />
     </>
   );

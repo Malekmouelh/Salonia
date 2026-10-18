@@ -24,6 +24,7 @@ import {
   duplicatePackAction,
   togglePromotionAction,
   deletePromotionAction,
+  importCatalogDraftAction,
 } from "@/app/actions/catalog";
 import { ServiceModal } from "./service-modal";
 import { PackModal } from "./pack-modal";
@@ -37,6 +38,7 @@ interface CatalogueManagerProps {
   categories: string[];
   centers: { id: string; name: string }[];
   canManage: boolean;
+  hasCatalogDraft?: boolean;
 }
 
 export function CatalogueManager({
@@ -46,6 +48,7 @@ export function CatalogueManager({
   categories,
   centers,
   canManage,
+  hasCatalogDraft = false,
 }: CatalogueManagerProps) {
   const { t, lang } = useI18n();
   const [tab, setTab] = useState<"services" | "packs" | "promotions">("services");
@@ -69,6 +72,28 @@ export function CatalogueManager({
 
   const showSuccess = (msg: string) => setToast({ tone: "success", message: msg });
   const showError = (msg: string) => setToast({ tone: "error", message: msg });
+
+  // Import brouillon IA
+  const [importingDraft, setImportingDraft] = useState(false);
+  const [draftDismissed, setDraftDismissed] = useState(false);
+
+  const handleImportDraft = async () => {
+    setImportingDraft(true);
+    try {
+      const res = await importCatalogDraftAction();
+      if (res.ok) {
+        showSuccess(res.message ?? "Brouillon importé avec succès.");
+        setDraftDismissed(true);
+        // Reload to show new services
+        window.location.reload();
+      } else {
+        showError(res.message ?? "Erreur lors de l'import.");
+        setDraftDismissed(true);
+      }
+    } finally {
+      setImportingDraft(false);
+    }
+  };
 
   // Filtering services
   const filteredServices = initialServices.filter((s) => {
@@ -199,6 +224,41 @@ export function CatalogueManager({
         <Toast tone={toast.tone} onDone={() => setToast(null)}>
           {toast.message}
         </Toast>
+      )}
+
+      {/* Bannière import brouillon IA */}
+      {hasCatalogDraft && !draftDismissed && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-champagne/30 bg-gradient-to-r from-champagne/10 to-blush/10 p-4 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-champagne/20 text-champagne">
+              <SparkleIcon width={18} height={18} />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-white">
+                {t("Brouillon IA disponible")}
+              </p>
+              <p className="mt-0.5 text-xs text-white/60">
+                {t("L'assistant IA a préparé une liste de services pour votre salon. Importez-les en un clic pour démarrer rapidement.")}
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <button
+              onClick={() => setDraftDismissed(true)}
+              className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/50 transition hover:text-white"
+            >
+              {t("Ignorer")}
+            </button>
+            <button
+              onClick={handleImportDraft}
+              disabled={importingDraft}
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-champagne to-blush px-4 py-2 text-xs font-bold text-plum-950 shadow-lg transition hover:opacity-90 disabled:opacity-50"
+            >
+              <SparkleIcon width={14} height={14} />
+              {importingDraft ? t("Importation…") : t("Importer le brouillon IA")}
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Hero Stats Banner */}

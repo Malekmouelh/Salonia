@@ -567,3 +567,81 @@ export async function reorderCatalogAction(
   revalidatePath("/dashboard/catalogue");
   return { ok: true, message: "Ordre mis à jour." };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IMPORT BROUILLON IA (F3.5 – catalogDraft → vrais services/packs)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ImportDraftResult = CatalogActionResult & {
+  imported?: { services: number; packs: number };
+};
+
+export async function importCatalogDraftAction(): Promise<ImportDraftResult> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: "Organisation introuvable." };
+
+  await connectDB();
+  const orgId = new Types.ObjectId(user.organization.id);
+
+  // Récupérer le brouillon IA depuis l'organisation
+  const { Organization } = await import("@/lib/models/core");
+  const org = await Organization.findById(orgId).lean();
+  if (!org) return { ok: false, message: "Organisation introuvable." };
+
+  const draft = org.catalogDraft as {
+    services?: { name: string; category: string; durationMinutes: number; priceTnd: number }[];
+    team?: unknown[];
+    createdAt?: string;
+  } | null;
+
+  if (!draft || !Array.isArray(draft.services) || draft.services.length === 0) {
+    return { ok: false, message: "Aucun brouillon de catalogue disponible. Utilisez l'assistant IA pour en générer un." };
+  }
+
+  // Récupérer les services déjà existants pour éviter les doublons (par nom, insensible à la casse)
+  const existing = await Service.find({ organizationId: orgId }).select("name").lean();
+  const existingNames = new Set(existing.map((s) => s.name.toLowerCase().trim()));
+
+  const toCreate = draft.services.filter(
+    (s) => s.name && s.category && s.durationMinutes > 0 && s.priceTnd >= 0
+      && !existingNames.has(s.name.toLowerCase().trim()),
+  );
+
+  if (toCreate.length === 0) {
+    return { ok: false, message: "Tous les services du brouillon existent déjà dans votre catalogue." };
+  }
+
+  // Calculer le prochain sortOrder
+  const highestSort = await Service.findOne({ organizationId: orgId }).sort({ sortOrder: -1 }).select("sortOrder").lean();
+  let nextSort = (highestSort?.sortOrder ?? 0) + 1;
+
+  const created = await Service.insertMany(
+    toCreate.map((s) => ({
+      organizationId: orgId,
+      name: s.name,
+      category: s.category,
+      durationMinutes: s.durationMinutes,
+      priceTnd: s.priceTnd,
+      sortOrder: nextSort++,
+      active: true,
+    })),
+  );
+
+  await logEvent("SERVICE_CREATED", {
+    userId: user.id,
+    organizationId: user.organization.id,
+    detail: `Import brouillon IA : ${created.length} service(s) importé(s)`,
+  });
+
+  // Effacer le brouillon maintenant qu'il est importé
+  await Organization.updateOne({ _id: orgId }, { $set: { catalogDraft: null } });
+
+  updateTag(`salon:${user.organization.slug}`);
+  revalidatePath("/dashboard/catalogue");
+
+  return {
+    ok: true,
+    message: `${created.length} service(s) importé(s) depuis le brouillon IA avec succès.`,
+    imported: { services: created.length, packs: 0 },
+  };
+}

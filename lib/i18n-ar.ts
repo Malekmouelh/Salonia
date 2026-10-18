@@ -775,7 +775,6 @@ export const AR: Record<string, string> = {
   // Module 2 — Catalogue de services et packs (Maya)
   "Catalogue": "دليل الخدمات",
   "Catalogue & Packs": "الخدمات والباقات",
-  "Catalogue & packs": "الخدمات والباقات",
   "Catalogue de prestations & packs": "دليل الخدمات والباقات",
   "Configurez vos services, options et suppléments, composez des forfaits attractifs et ajustez les prix selon vos centres en Tunisie.":
     "قم بتهيئة خدماتك وخياراتك وإضافاتك، وركّب باقات جذابة واضبط الأسعار حسب فروعك في تونس.",
@@ -789,7 +788,6 @@ export const AR: Record<string, string> = {
   "Nouveau pack": "باقة جديدة",
   "Modifier le pack": "تعديل الباقة",
   "Nouvelle promotion": "عرض ترويجي جديد",
-  "Toutes les catégories": "جميع الفئات",
   "Tous les centres": "جميع الفروع",
   "Actifs uniquement": "المفعلة فقط",
   "Rechercher par nom, catégorie, description...": "البحث بالاسم أو الفئة أو الوصف...",
@@ -806,7 +804,6 @@ export const AR: Record<string, string> = {
   "Nom du service": "اسم الخدمة",
   "Nom du pack": "اسم الباقة",
   "Nom de la promotion": "اسم العرض الترويجي",
-  "Catégorie": "الفئة",
   "Durée": "المدة",
   "Durée standard": "المدة العادية",
   "Tarif de base": "السعر الأساسي",
@@ -874,10 +871,17 @@ export const AR: Record<string, string> = {
   "Épilation": "إزالة الشعر",
   "Massage & Bien-être": "تدليك واسترخاء",
   "Maquillage & Regard": "مكياج وجمال العينين",
-  "Nos packs": "باقاتنا المميزة",
-  "Ou composez votre moment": "أو اختر خدماتك حسب رغبتك",
-  "Choisissez votre salon": "اختر صالونك",
-  "6 prestations maximum par rendez-vous.": "6 خدمات كحد أقصى لكل موعد.",
   "photos": "صور",
   "photo": "صورة",
+
+  // Import brouillon IA
+  "Brouillon IA disponible": "مسودة الذكاء الاصطناعي متاحة",
+  "L'assistant IA a préparé une liste de services pour votre salon. Importez-les en un clic pour démarrer rapidement.":
+    "أعدّ المساعد الذكي قائمة خدمات لصالونك. استوردها بنقرة واحدة للبدء بسرعة.",
+  "Ignorer": "تجاهل",
+  "Importer le brouillon IA": "استيراد مسودة الذكاء الاصطناعي",
+  "Importation…": "جارٍ الاستيراد…",
+
+  // Badges économies sur les packs
+  "Économisez": "وفّر",
 };

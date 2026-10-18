@@ -174,7 +174,7 @@ export async function getCatalog(organizationId: string, centerId?: string | nul
   const [services, packs] = await Promise.all([
     Service.find({ organizationId, active: true, ...centerFilter }).sort({ sortOrder: 1, category: 1, name: 1 }).lean(),
     Pack.find({ organizationId, active: true, ...centerFilter })
-      .populate<{ serviceIds: { _id: Types.ObjectId; name: string; durationMinutes: number }[] }>("serviceIds", "name durationMinutes")
+      .populate<{ serviceIds: { _id: Types.ObjectId; name: string; durationMinutes: number; priceTnd: number }[] }>("serviceIds", "name durationMinutes priceTnd")
       .sort({ sortOrder: 1, name: 1 })
       .lean(),
   ]);
@@ -205,20 +205,27 @@ export async function getCatalog(organizationId: string, centerId?: string | nul
 
   const packOptions: PackOption[] = packs.map((p) => {
     const validServices = (p.serviceIds ?? []).filter((s) => s && s._id);
+    const packPrice = resolvePrice(p);
+    const regularTotal = validServices.reduce((sum, s) => sum + (s.priceTnd || 0), 0);
+    const savingsTnd = Math.max(0, regularTotal - packPrice);
+    const savingsPercent = regularTotal > 0 ? Math.round((savingsTnd / regularTotal) * 100) : 0;
     return {
       id: String(p._id),
       name: p.name,
-      priceTnd: resolvePrice(p),
+      priceTnd: packPrice,
       durationMinutes: validServices.reduce((sum, s) => sum + s.durationMinutes, 0),
       serviceIds: validServices.map((s) => String(s._id)),
       serviceNames: validServices.map((s) => s.name),
       description: p.description ?? "",
       photos: (p.photos ?? []).map(String),
+      savingsTnd: savingsTnd > 0 ? savingsTnd : undefined,
+      savingsPercent: savingsPercent > 0 ? savingsPercent : undefined,
     };
   });
 
   return { services: serviceOptions, packs: packOptions };
 }
+
 
 // IA — Créneaux à remplir : trous d'au moins 45 min sur les 7 prochains jours,
 // associés aux clients de la liste d'attente et aux habitués qui n'ont pas reréservé.
