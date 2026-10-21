@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useI18n } from "@/components/i18n/i18n-provider";
-import { CalendarIcon, ClockIcon, LayersIcon, SparkleIcon, UsersIcon, WalletIcon, WandIcon } from "@/components/ui/icons";
+import { CalendarIcon, ClockIcon, LayersIcon, SparkleIcon, StoreIcon, UsersIcon, WalletIcon, WandIcon } from "@/components/ui/icons";
 import type { Role } from "@/lib/enums";
 
 const LINKS = [
@@ -15,6 +15,7 @@ const LINKS = [
   { href: "/dashboard/finances", label: "Finances", icon: WalletIcon, roles: ["OWNER", "MANAGER"] },
   { href: "/dashboard/finances/caisse", label: "Caisse", icon: WalletIcon, roles: ["STAFF"] },
   { href: "/dashboard/assistant", label: "Assistant IA", icon: WandIcon, roles: ["OWNER"] },
+  { href: "/dashboard/salons", label: "Trouver un salon", icon: StoreIcon, roles: ["CLIENT"] },
 ] as const;
 
 export function DashboardNav({ role }: { role: Role }) {

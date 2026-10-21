@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
+import { payMyBooking } from "@/app/actions/client";
 import { STATUS_META } from "@/components/calendar/status";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { CalendarIcon, SparkleIcon } from "@/components/ui/icons";
@@ -97,7 +99,17 @@ function Mini({ label, value }: { label: string; value: string }) {
   );
 }
 
-type MyBooking = { id: string; start: string; status: BookingStatus; services: string; center: string; totalTnd: number };
+type MyBooking = {
+  id: string;
+  start: string;
+  status: BookingStatus;
+  services: string;
+  center: string;
+  salon: string;
+  salonSlug: string;
+  totalTnd: number;
+  dueTnd: number;
+};
 
 // Compte client : ses rendez-vous à venir et passés.
 export function MyBookings({ bookings, bookingUrl }: { bookings: MyBooking[]; bookingUrl: string | null }) {
@@ -127,13 +139,45 @@ export function MyBookings({ bookings, bookingUrl }: { bookings: MyBooking[]; bo
               <span className="w-44 text-sm capitalize text-white">
                 {fmtDay(b.start, lang, { weekday: "short", day: "numeric", month: "short" })} · <span dir="ltr">{fmtTime(b.start, lang)}</span>
               </span>
-              <span className="min-w-0 flex-1 truncate text-sm text-white/70">{b.services} · {b.center}</span>
-              <span className="text-sm text-white">{fmtMoney(b.totalTnd, lang)}</span>
+              <span className="min-w-0 flex-1 truncate text-sm text-white/70">{b.services} · {b.salon} — {b.center}</span>
+              <span className="text-sm text-white">
+                {fmtMoney(b.totalTnd, lang)}
+                {b.dueTnd <= 0 && b.totalTnd > 0 && <span className="ms-1.5 text-xs text-emerald-300">✓ {t("Payé")}</span>}
+              </span>
               <span className={`rounded-full px-2.5 py-0.5 text-[11px] ${STATUS_META[b.status].chip}`}>{t(STATUS_META[b.status].label)}</span>
+              {b.start > now && b.dueTnd > 0 && (b.status === "CONFIRMED" || b.status === "PENDING") && <PayButton bookingId={b.id} dueTnd={b.dueTnd} />}
             </li>
           ))}
         </ul>
       )}
     </section>
+  );
+}
+
+// Paiement en ligne du reste à payer d'un rendez-vous à venir (page sécurisée du Module 6).
+function PayButton({ bookingId, dueTnd }: { bookingId: string; dueTnd: number }) {
+  const { t, lang } = useI18n();
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  return (
+    <span className="flex items-center gap-2">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() =>
+          start(async () => {
+            setError(null);
+            const r = await payMyBooking({ bookingId, kind: "PAYMENT" });
+            if (r.ok) router.push(r.url);
+            else setError(r.error);
+          })
+        }
+        className="btn-shine rounded-xl px-3 py-1.5 text-xs font-semibold text-plum-950 disabled:opacity-60"
+      >
+        {t("Payer")} {fmtMoney(dueTnd, lang)}
+      </button>
+      {error && <span className="text-xs text-red-300">{t(error)}</span>}
+    </span>
   );
 }

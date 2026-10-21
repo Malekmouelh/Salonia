@@ -7,6 +7,8 @@ import { CenterPhotosGallery } from "@/components/dashboard/center-photos-galler
 import { Confetti } from "@/components/dashboard/confetti";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { SecurityLog } from "@/components/dashboard/security-log";
+import { SalonDirectory } from "@/components/salons/salon-directory";
+import { getSalonDirectory } from "@/lib/data/salons";
 import { MyBookings, TodayPanel } from "@/components/dashboard/today";
 import { T } from "@/components/i18n/i18n-provider";
 import { Aurora } from "@/components/ui/aurora";
@@ -71,14 +73,21 @@ export default function DashboardPage({ searchParams }: PageProps<"/dashboard">)
 
 async function Dashboard({ searchParams }: { searchParams: PageProps<"/dashboard">["searchParams"] }) {
   const user = await getCurrentUser();
-  const [centers, events, params, today, myBookings] = await Promise.all([
+  const isClient = user.role === "CLIENT";
+  const [centers, events, params, today, myBookings, salons] = await Promise.all([
     getVisibleCenters(user),
     getSecurityEvents(user),
     searchParams,
     user.role === "CLIENT" ? Promise.resolve(null) : getTodayOverview(user),
     user.role === "CLIENT" ? getMyBookings(user) : Promise.resolve([]),
+    isClient ? getSalonDirectory() : Promise.resolve([]),
   ]);
-  const bookingUrl = user.organization ? `/reserver/${user.organization.slug}` : null;
+  // Client : lien vers le dernier salon où il a réservé.
+  const bookingUrl = user.organization
+    ? `/reserver/${user.organization.slug}`
+    : myBookings[0]
+      ? `/reserver/${myBookings[0].salonSlug}`
+      : null;
   const isOwner = user.role === "OWNER";
   const selectedId = typeof params.center === "string" ? params.center : null;
   const selected = centers.find((c) => c.id === selectedId) ?? null;
@@ -97,7 +106,9 @@ async function Dashboard({ searchParams }: { searchParams: PageProps<"/dashboard
             <T>Bonjour,</T> <span className="text-gradient italic">{user.firstName}</span>
           </h1>
           <p className="mt-3 max-w-lg text-white/60">
-            {user.organization ? (
+            {user.role === "CLIENT" ? (
+              <T>Retrouvez vos rendez-vous, payez en ligne et réservez à nouveau en quelques clics.</T>
+            ) : user.organization ? (
               <>
                 <T>Bienvenue dans l&apos;espace</T> <strong className="text-white">{user.organization.name}</strong>.{" "}
                 <T>{isOwner ? "Tout est prêt pour gérer vos centres." : "Voici votre espace personnel."}</T>
@@ -140,9 +151,22 @@ async function Dashboard({ searchParams }: { searchParams: PageProps<"/dashboard
       </section>
 
       {today && <TodayPanel overview={today} bookingUrl={bookingUrl} />}
-      {user.role === "CLIENT" && <MyBookings bookings={myBookings} bookingUrl={bookingUrl} />}
+      {isClient && <MyBookings bookings={myBookings} bookingUrl={bookingUrl} />}
 
-      {(centers.length > 0 || isOwner) && (
+      {/* Espace client : quelques salons à découvrir, puis l'annuaire complet. */}
+      {isClient && (
+        <section className="mt-10">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <h2 className="font-display text-2xl text-white"><T>Salons à découvrir</T></h2>
+            <Link href="/dashboard/salons" className="text-sm text-champagne underline-offset-4 hover:underline">
+              <T>Voir tous les salons</T> →
+            </Link>
+          </div>
+          <SalonDirectory salons={salons} limit={3} />
+        </section>
+      )}
+
+      {!isClient && (centers.length > 0 || isOwner) && (
         <section className="mt-10">
           <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
             <h2 className="font-display text-2xl text-white animate-fade-up">
@@ -203,7 +227,7 @@ async function Dashboard({ searchParams }: { searchParams: PageProps<"/dashboard
       )}
 
       <section className="mt-10 grid gap-5 lg:grid-cols-5">
-        <div className="glass rounded-[2rem] p-7 lg:col-span-3">
+        <div className={`glass rounded-[2rem] p-7 ${isClient ? "lg:col-span-5" : "lg:col-span-3"}`}>
           <div className="mb-5 flex items-center justify-between">
             <h2 className="font-display text-2xl text-white"><T>Journal de sécurité</T></h2>
             <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-white/50">
@@ -222,7 +246,7 @@ async function Dashboard({ searchParams }: { searchParams: PageProps<"/dashboard
           />
         </div>
 
-        <div className="lg:col-span-2">
+        {!isClient && <div className="lg:col-span-2">
           <h2 className="mb-4 font-display text-2xl text-white"><T>Modules de la plateforme</T></h2>
           <div className="stagger grid grid-cols-2 gap-3">
             {MODULES.map(({ name, icon: Icon, status, color }, i) => (
@@ -237,7 +261,7 @@ async function Dashboard({ searchParams }: { searchParams: PageProps<"/dashboard
               </div>
             ))}
           </div>
-        </div>
+        </div>}
       </section>
     </>
   );

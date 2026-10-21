@@ -75,12 +75,25 @@ export function LoginForm({ demoAccounts = [] }: { demoAccounts?: DemoAccount[] 
 
         <SubmitButton pending={pending}>{t("Se connecter")}</SubmitButton>
 
-        <p className="text-center text-sm text-white/55">
-          {t("Nouveau salon ?")}{" "}
-          <Link href="/register" className="font-medium text-white underline decoration-rose-gold/60 underline-offset-4 transition hover:decoration-champagne">
-            {t("Créer mon espace gratuitement")}
-          </Link>
-        </p>
+        {/* Venu d'une réservation : on garde la réservation en cours (next) pour l'inscription client. */}
+        {searchParams.get("next")?.startsWith("/reserver/") ? (
+          <p className="text-center text-sm text-white/55">
+            {t("Pas encore de compte ?")}{" "}
+            <Link
+              href={`/register?type=client&next=${encodeURIComponent(searchParams.get("next") ?? "")}`}
+              className="font-medium text-white underline decoration-rose-gold/60 underline-offset-4 transition hover:decoration-champagne"
+            >
+              {t("Créer mon compte client")}
+            </Link>
+          </p>
+        ) : (
+          <p className="text-center text-sm text-white/55">
+            {t("Pas encore de compte ?")}{" "}
+            <Link href="/register" className="font-medium text-white underline decoration-rose-gold/60 underline-offset-4 transition hover:decoration-champagne">
+              {t("Créer mon espace gratuitement")}
+            </Link>
+          </p>
+        )}
       </div>
 
       {demoAccounts.length > 0 && (

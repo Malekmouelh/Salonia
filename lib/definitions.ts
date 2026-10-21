@@ -83,6 +83,27 @@ export const RegisterSchema = z
     message: "Les mots de passe ne correspondent pas.",
   });
 
+// Compte client : le téléphone est obligatoire (fiche client du salon, confirmation et rappels).
+export const ClientRegisterSchema = z
+  .object({
+    firstName: z.string().trim().min(2, "Prénom trop court."),
+    lastName: z.string().trim().min(2, "Nom trop court."),
+    phone: z.string().trim().refine(isPhone, "Numéro tunisien invalide (8 chiffres)."),
+    email: z.string().trim().toLowerCase().pipe(z.email("Adresse e-mail invalide.")),
+    password,
+    confirmPassword: z.string(),
+  })
+  .refine((d) => d.password === d.confirmPassword, {
+    path: ["confirmPassword"],
+    message: "Les mots de passe ne correspondent pas.",
+  });
+
+// Retour après connexion ou inscription : chemins internes uniquement.
+export function safeNext(next: unknown) {
+  const value = typeof next === "string" ? next : "";
+  return value.startsWith("/") && !value.startsWith("//") && !value.startsWith("/\\") ? value : null;
+}
+
 export const ForgotPasswordSchema = z.object({
   identifier: LoginSchema.shape.identifier,
 });

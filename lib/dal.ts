@@ -1,19 +1,21 @@
 import "server-only";
 import { cache } from "react";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { isValidObjectId } from "mongoose";
 import { connectDB } from "@/lib/db";
 import type { Governorate, Role } from "@/lib/enums";
 import { Center, Organization, User } from "@/lib/models/core";
-import { SESSION_COOKIE, decrypt } from "@/lib/session";
+import { auth } from "@/auth";
 
 // Data Access Layer : toute lecture protégée passe par ici.
+// Session NextAuth (JWT signé dans un cookie httpOnly), revérifiée côté serveur à chaque requête.
 export const verifySession = cache(async () => {
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  const session = await decrypt(token);
-  if (!session?.userId || !isValidObjectId(session.userId)) redirect("/login");
-  return session;
+  await connection();
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId || !isValidObjectId(userId)) redirect("/login");
+  return { userId, role: session.user.role, organizationId: session.user.organizationId };
 });
 
 export type CurrentUser = {
@@ -38,7 +40,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser> => {
   await connectDB();
   const user = await User.findById(session.userId).lean();
   // Compte supprimé : la route efface le cookie puis renvoie vers la connexion.
-  if (!user) redirect("/api/auth/signout");
+  if (!user) redirect("/api/auth/expired");
 
   const [organization, centers] = user.organizationId
     ? await Promise.all([

@@ -27,6 +27,8 @@ import { accessibleCenterIds, type CurrentUser } from "@/lib/dal";
 import type { BlockKind, BookingSource, BookingStatus } from "@/lib/enums";
 import { AvailabilityBlock, Booking, Customer, WaitlistEntry } from "@/lib/models/booking";
 import { Pack, Service } from "@/lib/models/catalog";
+import { Payment } from "@/lib/models/finance";
+import { balanceDue } from "@/lib/finance/money";
 import { Center } from "@/lib/models/core";
 
 // Couleur stable par praticien dans le calendrier.
@@ -380,21 +382,21 @@ export async function getTodayOverview(user: CurrentUser) {
   };
 }
 
-// Compte client : ses rendez-vous, retrouvés par sa fiche client (même e-mail ou téléphone).
+// Compte client : ses rendez-vous dans tous les salons, retrouvés par ses fiches clients reliées au compte.
+// (Seul le lien userId compte : un numéro ou un e-mail identique ne suffit pas à voir l'historique d'un autre.)
 export async function getMyBookings(user: CurrentUser) {
-  if (!user.organization) return [];
+  if (user.role !== "CLIENT") return [];
   await connectDB();
-  const customers = await Customer.find({
-    organizationId: user.organization.id,
-    $or: [{ userId: user.id }, ...(user.email ? [{ email: user.email }] : []), ...(user.phone ? [{ phone: user.phone }] : [])],
-  })
-    .select("_id")
-    .lean();
+  const customers = await Customer.find({ userId: user.id }).select("_id").lean();
   if (customers.length === 0) return [];
   const bookings = await Booking.find({ customerId: { $in: customers.map((c) => c._id) } })
     .sort({ start: -1 })
-    .limit(20)
+    .limit(30)
     .populate<{ centerId: { name: string } }>("centerId", "name")
+    .populate<{ organizationId: { name: string; slug: string } }>("organizationId", "name slug")
+    .lean();
+  const payments = await Payment.find({ bookingId: { $in: bookings.map((b) => b._id) }, status: "PAID" })
+    .select("bookingId kind amountTnd status")
     .lean();
   return bookings.map((b) => ({
     id: String(b._id),
@@ -402,6 +404,9 @@ export async function getMyBookings(user: CurrentUser) {
     status: b.status as BookingStatus,
     services: b.packName ?? b.items.map((i) => i.name).join(" + "),
     center: b.centerId.name,
+    salon: b.organizationId.name,
+    salonSlug: b.organizationId.slug,
     totalTnd: b.totalTnd,
+    dueTnd: balanceDue(b.totalTnd, payments.filter((p) => String(p.bookingId) === String(b._id))),
   }));
 }

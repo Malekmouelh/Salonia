@@ -78,7 +78,7 @@ async function main() {
     { firstName: "Admin", lastName: "Plateforme", email: "admin@salonia.tn", role: "SUPER_ADMIN" as const, passwordHash },
     { ...base, firstName: "Yasmine", lastName: "Ben Ali", email: "owner@salonia.tn", phone: "98123456", role: "OWNER" as const, centerIds: centers.map((c) => c._id) },
     { ...base, firstName: "Karim", lastName: "Trabelsi", email: "manager@salonia.tn", role: "MANAGER" as const, centerIds: [sousse._id] },
-    { ...base, firstName: "Sarra", lastName: "Mansouri", email: "client@salonia.tn", role: "CLIENT" as const },
+    { ...base, firstName: "Sarra", lastName: "Mansouri", email: "client@salonia.tn", phone: "55123456", role: "CLIENT" as const },
   ]);
   const staffDefs = [
     { firstName: "Amira", lastName: "Gharbi", email: "staff@salonia.tn", phone: "22345678", center: tunis },

@@ -18,7 +18,7 @@ Next.js 16 (App Router) · TypeScript · Tailwind CSS 4 · **MongoDB Atlas (Mong
 
 ```bash
 npm install
-cp .env.example .env      # puis renseigner MONGODB_URI (Atlas) et SESSION_SECRET
+cp .env.example .env      # puis renseigner MONGODB_URI (Atlas) et AUTH_SECRET
 npm run db:seed           # données de démo (mot de passe : Demo1234)
 npm run dev
 npm test                  # tests automatisés (Module 6)
@@ -36,7 +36,7 @@ puis `MONGODB_URI="mongodb://127.0.0.1:27017"` dans `.env`.
 |---|---|
 | `MONGODB_URI` | Atlas : `mongodb+srv://…` · local : `mongodb://127.0.0.1:27017` |
 | `MONGODB_DB` | nom de la base (`salonia`, ou une base par membre : `salonia_malek`…) |
-| `SESSION_SECRET` | clé de signature des sessions (`openssl rand -base64 32`) |
+| `AUTH_SECRET` | clé de signature des sessions NextAuth (`npx auth secret`) ; `SESSION_SECRET` reste accepté |
 | `DEMO_MODE` | `"true"` : comptes de démo sur /login et lien de réinitialisation affiché |
 | `ANTHROPIC_API_KEY` | IA (assistant de configuration, chatbot). Vide : modes hors ligne |
 | `CRON_SECRET` | protège `/api/cron/reminders` (rappels automatiques) |
@@ -95,6 +95,13 @@ Page de réservation publique : `/reserver/salon-yasmine`
 - **Chatbot de réservation** : Claude avec deux outils (`find_slots`, `propose_booking`), repli par mots-clés FR/AR.
   L'IA propose, le client confirme.
 
+**Compte client obligatoire pour confirmer** : le parcours `/reserver/[slug]` est ouvert à tous (prestations,
+praticien, créneau), mais la confirmation demande un compte client (`/register?type=client`). La réservation en
+cours est gardée dans l'adresse (`?reprise=…`, `lib/booking/draft.ts`) pendant la connexion ou l'inscription.
+Le nom et le téléphone viennent du compte (jamais du formulaire) ; la fiche client du salon est reliée au compte
+(`userId`). Après confirmation, le client peut payer l'acompte (30 %) ou la totalité en ligne (page `/paiement`
+du Module 6) ; « Mes rendez-vous » sur son tableau de bord affiche ses rendez-vous de tous les salons et le reste à payer.
+
 Règles métier : pas de double réservation (revérification à l'enregistrement), fuseau Africa/Tunis,
 annulation/report en ligne jusqu'à 2 h avant, rappels uniquement avec consentement.
 
@@ -147,6 +154,17 @@ un jour sans saisie de caisse à Djerba et un achat de produits exceptionnel à 
 | 4 — Équipe (Amine) | praticiens = utilisateurs `STAFF` affectés au centre (`centerIds`) | `lib/booking/availability.ts` |
 | 6 — Finances (Salsabil) | `bookings` (statut `COMPLETED`, `totalTnd`, `items`) ; le Module 6 passe un RDV réglé à `COMPLETED` | `lib/models/booking.ts`, `lib/finance/service.ts` |
 | Socle — Notifications | boîte d'envoi `notifications` (statut `QUEUED`) à brancher sur SMS/WhatsApp | `lib/models/booking.ts` |
+
+## Authentification (NextAuth)
+
+**NextAuth v5 (Auth.js)**, fournisseur `credentials` : connexion par e-mail **ou** téléphone + mot de passe (bcrypt).
+- `auth.config.ts` : configuration sans base (session JWT dans un cookie httpOnly, rôle et organisation dans le jeton,
+  7 jours avec « Se souvenir de moi », 12 h sinon) — utilisée par `proxy.ts`.
+- `auth.ts` : `NextAuth()` avec la vérification du mot de passe dans MongoDB → `auth`, `signIn`, `signOut`, `handlers`.
+- `app/api/auth/[...nextauth]/route.ts` : routes NextAuth.
+- `app/actions/auth.ts` : connexion (`signIn`), blocage après 5 échecs, inscription propriétaire ou client, déconnexion
+  (`signOut`), mot de passe oublié ; chaque événement est inscrit au journal de sécurité.
+- `lib/dal.ts` : `getCurrentUser()` / `requireRole()` relisent la session (`auth()`) et l'utilisateur en base à chaque requête.
 
 ## Architecture
 
