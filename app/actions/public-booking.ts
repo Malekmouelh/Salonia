@@ -10,6 +10,7 @@ import { isPhone, normalizePhone } from "@/lib/definitions";
 import { Booking, WaitlistEntry } from "@/lib/models/booking";
 import { Promotion } from "@/lib/models/catalog";
 import { Organization } from "@/lib/models/core";
+import { getBookingClient } from "@/lib/data/booking-client";
 import { isObjectId } from "@/lib/data/public-salon";
 
 // Actions publiques de réservation (F3.3, F3.5) : appelées par la page /reserver/[slug]
@@ -125,10 +126,7 @@ const OnlineBookingSchema = z.object({
   selection: SelectionSchema,
   staffId: z.string().nullable(),
   start: z.iso.datetime(),
-  firstName: z.string().trim().min(2, "Prénom trop court."),
-  lastName: z.string().trim().min(2, "Nom trop court."),
-  phone: z.string().trim().refine(isPhone, "Numéro tunisien invalide (8 chiffres)."),
-  email: z.union([z.literal(""), z.email("Adresse e-mail invalide.")]).optional(),
+  // Nom, téléphone et e-mail viennent du compte client connecté, jamais du formulaire.
   remindersConsent: z.boolean(),
   notes: z.string().trim().max(300).optional(),
   promoCode: z.string().trim().max(30).optional(),
@@ -138,7 +136,7 @@ const OnlineBookingSchema = z.object({
 });
 
 export type OnlineBookingResult =
-  | { ok: true; manageUrl: string; start: string; staffName: string }
+  | { ok: true; bookingId: string; manageUrl: string; start: string; staffName: string; totalTnd: number }
   | { ok?: false; error: string; field?: string };
 
 export async function createOnlineBooking(input: z.input<typeof OnlineBookingSchema>): Promise<OnlineBookingResult> {
@@ -148,6 +146,12 @@ export async function createOnlineBooking(input: z.input<typeof OnlineBookingSch
     return { error: issue?.message ?? "Formulaire invalide.", field: String(issue?.path[0] ?? "") };
   }
   const d = parsed.data;
+
+  // Confirmer une réservation demande un compte client (le parcours reste ouvert à tous jusque-là).
+  const client = await getBookingClient();
+  if (!client) return { error: "Connectez-vous ou créez votre compte client pour confirmer.", field: "auth" };
+  if (client.kind !== "client") return { error: "Ce compte est un compte salon : connectez-vous avec un compte client pour réserver.", field: "auth" };
+  if (!client.phone) return { error: "Ajoutez un numéro de téléphone à votre compte pour réserver.", field: "auth" };
 
   const ip = await clientIp();
   const recent = (hits.get(ip) ?? []).filter((t) => Date.now() - t < 3_600_000);
@@ -171,11 +175,12 @@ export async function createOnlineBooking(input: z.input<typeof OnlineBookingSch
       staffId = await pickLeastBusy(d.centerId, slot.staffIds, startOfLocalDay(start));
     }
     const customer = await upsertCustomer(org.id, {
-      firstName: d.firstName,
-      lastName: d.lastName,
-      phone: normalizePhone(d.phone),
-      email: d.email || null,
+      firstName: client.firstName,
+      lastName: client.lastName,
+      phone: client.phone,
+      email: client.email,
       remindersConsent: d.remindersConsent,
+      userId: client.id,
     });
     const { booking, manageUrl } = await createBooking({
       organizationId: org.id,
@@ -190,7 +195,14 @@ export async function createOnlineBooking(input: z.input<typeof OnlineBookingSch
       baseUrl: await baseUrl(),
     });
     const staff = await Booking.findById(booking._id).populate<{ staffId: { firstName: string } }>("staffId", "firstName").lean();
-    return { ok: true, manageUrl: manageUrl!, start: booking.start.toISOString(), staffName: staff?.staffId.firstName ?? "" };
+    return {
+      ok: true,
+      bookingId: String(booking._id),
+      manageUrl: manageUrl!,
+      start: booking.start.toISOString(),
+      staffName: staff?.staffId.firstName ?? "",
+      totalTnd: booking.totalTnd,
+    };
   } catch (e) {
     if (e instanceof BookingError) return { error: e.message };
     throw e;

@@ -359,6 +359,38 @@ export async function createPaymentLink(user: CurrentUser, bookingId: string, am
   return token;
 }
 
+// Paiement en ligne lancé par le client depuis son compte : acompte (30 %) ou solde de SON rendez-vous.
+export async function createClientPaymentLink(clientUserId: string, bookingId: string, kind: "DEPOSIT" | "PAYMENT") {
+  if (!Types.ObjectId.isValid(bookingId)) throw new FinanceError("Rendez-vous introuvable.");
+  await connectDB();
+  const booking = await Booking.findById(bookingId);
+  if (!booking) throw new FinanceError("Rendez-vous introuvable.");
+  // Le rendez-vous doit appartenir à une fiche client reliée à ce compte.
+  const owns = await Customer.exists({ _id: booking.customerId, userId: clientUserId });
+  if (!owns) throw new FinanceError("Rendez-vous introuvable.");
+  if (booking.status === "CANCELLED" || booking.status === "NO_SHOW") throw new FinanceError("Ce rendez-vous n'est plus actif.");
+  const due = balanceDue(booking.totalTnd, await bookingPayments(booking._id));
+  if (due <= 0) throw new FinanceError("Ce rendez-vous est déjà réglé.");
+  const amountTnd = kind === "DEPOSIT" ? Math.min(due, Math.ceil(booking.totalTnd * 0.3)) : due;
+
+  await Payment.updateMany({ bookingId: booking._id, status: "PENDING", method: "ONLINE" }, { $set: { status: "CANCELLED" } });
+  const token = randomBytes(24).toString("base64url");
+  await Payment.create({
+    organizationId: booking.organizationId,
+    centerId: booking.centerId,
+    bookingId: booking._id,
+    customerId: booking.customerId,
+    kind,
+    method: "ONLINE",
+    status: "PENDING",
+    amountTnd: roundTnd(amountTnd),
+    receivedBy: null,
+    gatewayTokenHash: hashPaymentToken(token),
+    gatewayExpiresAt: new Date(Date.now() + LINK_TTL_MS),
+  });
+  return token;
+}
+
 export async function findPendingOnlinePayment(token: string) {
   await connectDB();
   return Payment.findOne({ gatewayTokenHash: hashPaymentToken(token) });

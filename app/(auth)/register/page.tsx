@@ -1,16 +1,19 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { AuthCard } from "@/components/auth/auth-card";
-import { RegisterForm } from "@/components/auth/register-form";
+import { RegisterSwitch } from "@/components/auth/register-switch";
 
-export const metadata: Metadata = { title: "Créer mon salon" };
+export const metadata: Metadata = { title: "Créer un compte" };
 
 export default function RegisterPage() {
   return (
     <AuthCard
       title={["Créez votre", "espace"]}
-      subtitle="Votre salon en ligne en moins de 10 minutes. Gratuit pour démarrer."
+      subtitle="Client : réservez et payez en ligne. Salon : votre vitrine en moins de 10 minutes."
     >
-      <RegisterForm />
+      <Suspense>
+        <RegisterSwitch />
+      </Suspense>
     </AuthCard>
   );
 }

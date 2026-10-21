@@ -8,11 +8,13 @@ import type { Slot } from "@/lib/booking/availability";
 import { fmtDay, fmtDuration, fmtMoney, fmtTime } from "@/lib/booking/format";
 import { addDays, dayKey, parseDayKey, toLocal } from "@/lib/booking/time";
 import type { PublicSalon } from "@/lib/data/public-salon";
-import { governorateLabel, isPhone } from "@/lib/definitions";
+import { governorateLabel } from "@/lib/definitions";
 import { BookingChat } from "./booking-chat";
+import { encodeDraft, type BookingDraft } from "@/lib/booking/draft";
+import type { BookingClient } from "@/lib/data/booking-client";
 import { BookingSuccess } from "./booking-success";
 
-const STEPS = ["Prestation", "Praticien", "Créneau", "Coordonnées"];
+const STEPS = ["Prestation", "Praticien", "Créneau", "Confirmation"];
 
 export type Choice = {
   centerId: string;
@@ -69,20 +71,21 @@ function getPackPrice(pack: PublicSalon["packs"][number], centerId: string): num
 }
 
 // F3.3 — Réservation en ligne en 4 étapes (cahier des charges §7 : 4 étapes maximum).
-export function BookingWizard({ salon }: { salon: PublicSalon }) {
+export type BookingDone = { bookingId: string; start: string; manageUrl: string; staffName: string; totalTnd: number };
+
+export function BookingWizard({ salon, client, draft }: { salon: PublicSalon; client: BookingClient; draft: BookingDraft | null }) {
   const { t, lang } = useI18n();
-  const [step, setStep] = useState(0);
-  const [choice, setChoice] = useState<Choice>({
-    centerId: salon.centers[0]?.id ?? "",
-    serviceIds: [],
-    packId: null,
-    staffId: null,
-    selectedOptions: {},
-  });
-  const [day, setDay] = useState(dayKey(new Date()));
-  const [slot, setSlot] = useState<Slot | null>(null);
-  const [done, setDone] = useState<{ start: string; manageUrl: string; staffName: string } | null>(null);
-  const [viaChatbot, setViaChatbot] = useState(false);
+  // Reprise après connexion / inscription : directement à l'étape de confirmation.
+  const [step, setStep] = useState(draft ? 3 : 0);
+  const [choice, setChoice] = useState<Choice>(
+    draft
+      ? { centerId: draft.centerId, serviceIds: draft.serviceIds, packId: draft.packId, staffId: draft.staffId, selectedOptions: draft.selectedOptions ?? {} }
+      : { centerId: salon.centers[0]?.id ?? "", serviceIds: [], packId: null, staffId: null, selectedOptions: {} },
+  );
+  const [day, setDay] = useState(draft ? dayKey(new Date(draft.slot.start)) : dayKey(new Date()));
+  const [slot, setSlot] = useState<Slot | null>(draft?.slot ?? null);
+  const [done, setDone] = useState<BookingDone | null>(null);
+  const [viaChatbot, setViaChatbot] = useState(draft?.viaChatbot ?? false);
   const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
 
   const center = salon.centers.find((c) => c.id === choice.centerId)!;
@@ -122,14 +125,14 @@ export function BookingWizard({ salon }: { salon: PublicSalon }) {
     };
   }, [choice, salon]);
 
-  const canNext = [summary.minutes > 0, true, Boolean(slot), false][step];
+  const canNext = [summary.minutes > 0, center.practitioners.length > 0, Boolean(slot), false][step];
   const go = (n: number) => {
     setStep(n);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   if (done) {
-    return <BookingSuccess salon={salon} center={center} summary={summary} start={done.start} manageUrl={done.manageUrl} staffName={done.staffName} />;
+    return <BookingSuccess salon={salon} center={center} summary={summary} done={done} />;
   }
 
   return (
@@ -157,11 +160,24 @@ export function BookingWizard({ salon }: { salon: PublicSalon }) {
 
         <div key={step} className="animate-[slide-in-right_0.45s_cubic-bezier(0.16,1,0.3,1)_both] rtl:animate-[slide-in-left_0.45s_cubic-bezier(0.16,1,0.3,1)_both]">
           {step === 0 && <StepServices salon={salon} choice={choice} setChoice={(c) => { setChoice(c); setSlot(null); setAppliedPromo(null); }} />}
-          {step === 1 && <StepStaff center={center} choice={choice} setChoice={(c) => { setChoice(c); setSlot(null); }} />}
-          {step === 2 && <StepSlot salon={salon} choice={choice} selection={selection} day={day} setDay={setDay} slot={slot} setSlot={setSlot} />}
+          {/* Centre sans praticien (équipe pas encore créée, Module 4) : aucun créneau possible. */}
+          {(step === 1 || step === 2) && center.practitioners.length === 0 && (
+            <div className="glass rounded-[2rem] p-8 text-center">
+              <p className="font-display text-2xl text-white">{t("Réservation en ligne bientôt disponible")}</p>
+              <p className="mx-auto mt-2 max-w-md text-sm text-white/60">
+                {t("Ce centre n'a pas encore d'équipe disponible en ligne. Choisissez un autre centre ou contactez directement le salon.")}
+              </p>
+              <button type="button" onClick={() => go(0)} className="mt-5 rounded-2xl border border-white/15 px-5 py-2.5 text-sm text-white hover:border-rose-gold/50">
+                {t("Choisir un autre centre")}
+              </button>
+            </div>
+          )}
+          {step === 1 && center.practitioners.length > 0 && <StepStaff center={center} choice={choice} setChoice={(c) => { setChoice(c); setSlot(null); }} />}
+          {step === 2 && center.practitioners.length > 0 && <StepSlot salon={salon} choice={choice} selection={selection} day={day} setDay={setDay} slot={slot} setSlot={setSlot} />}
           {step === 3 && slot && (
             <StepDetails
               salon={salon}
+              client={client}
               choice={choice}
               selection={selection}
               slot={slot}
@@ -238,7 +254,7 @@ export function BookingWizard({ salon }: { salon: PublicSalon }) {
             </div>
           </div>
         )}
-        <p className="mt-3 text-[11px] text-white/40">{t("Paiement au salon. Annulation gratuite jusqu'à 2 h avant.")}</p>
+        <p className="mt-3 text-[11px] text-white/40">{t("Paiement en ligne ou au salon. Annulation gratuite jusqu'à 2 h avant.")}</p>
       </aside>
 
       <BookingChat
@@ -759,6 +775,7 @@ function StepSlot({
 // ── Étape 4 : coordonnées et confirmation ──
 function StepDetails({
   salon,
+  client,
   choice,
   selection,
   slot,
@@ -769,6 +786,7 @@ function StepDetails({
   onDone,
 }: {
   salon: PublicSalon;
+  client: BookingClient;
   choice: Choice;
   selection: { serviceIds: string[]; packId: string | null; selectedOptions?: Record<string, Record<string, string>> };
   slot: Slot;
@@ -776,10 +794,10 @@ function StepDetails({
   appliedPromo: AppliedPromo | null;
   setAppliedPromo: (p: AppliedPromo | null) => void;
   viaChatbot: boolean;
-  onDone: (d: { start: string; manageUrl: string; staffName: string }) => void;
+  onDone: (d: BookingDone) => void;
 }) {
   const { t, lang } = useI18n();
-  const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", email: "", notes: "", remindersConsent: true, website: "" });
+  const [form, setForm] = useState({ notes: "", remindersConsent: true, website: "" });
   const [error, setError] = useState<{ text: string; field?: string } | null>(null);
   const [pending, startTransition] = useTransition();
   const [promoInput, setPromoInput] = useState("");
@@ -813,8 +831,18 @@ function StepDetails({
 
   const field = "w-full rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3.5 text-white outline-none transition placeholder:text-white/35 focus:border-rose-gold/60";
 
+  // Adresse de retour après connexion / inscription : la réservation en cours y est encodée.
+  const resume = `/reserver/${salon.slug}?reprise=${encodeDraft({
+    centerId: choice.centerId,
+    serviceIds: choice.serviceIds,
+    packId: choice.packId,
+    staffId: choice.staffId,
+    selectedOptions: choice.selectedOptions,
+    slot,
+    viaChatbot,
+  })}`;
+
   const submit = () => {
-    if (!isPhone(form.phone)) return setError({ text: "Numéro tunisien invalide (8 chiffres).", field: "phone" });
     setError(null);
     startTransition(async () => {
       const r = await createOnlineBooking({
@@ -827,19 +855,16 @@ function StepDetails({
         viaChatbot,
         ...form,
       });
-      if (r.ok) onDone({ start: r.start, manageUrl: r.manageUrl, staffName: r.staffName });
+      if (r.ok) onDone({ bookingId: r.bookingId, start: r.start, manageUrl: r.manageUrl, staffName: r.staffName, totalTnd: r.totalTnd });
       else setError({ text: r.error, field: r.field });
     });
   };
 
   return (
     <div>
-      <h2 className="mb-3 font-display text-2xl text-white">{t("Vos coordonnées")}</h2>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <input className={`${field} ${error?.field === "firstName" ? "border-red-400/60" : ""}`} placeholder={t("Prénom")} autoComplete="given-name" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} />
-        <input className={`${field} ${error?.field === "lastName" ? "border-red-400/60" : ""}`} placeholder={t("Nom")} autoComplete="family-name" value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
-        <input className={`${field} ${error?.field === "phone" ? "border-red-400/60" : ""}`} placeholder={t("Téléphone (8 chiffres)")} inputMode="tel" autoComplete="tel" dir="ltr" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-        <input className={`${field} ${error?.field === "email" ? "border-red-400/60" : ""}`} placeholder={t("E-mail (facultatif)")} type="email" autoComplete="email" dir="ltr" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+      <h2 className="mb-3 font-display text-2xl text-white">{t("Confirmation")}</h2>
+      <AccountPanel client={client} resume={resume} />
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <textarea className={`${field} sm:col-span-2`} rows={2} placeholder={t("Une précision pour le salon ? (facultatif)")} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
         {/* Piège à robots : champ invisible pour les humains */}
         <input tabIndex={-1} autoComplete="off" className="hidden" aria-hidden value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} />
@@ -910,10 +935,63 @@ function StepDetails({
         {t("J'accepte de recevoir la confirmation et un rappel par WhatsApp ou SMS.")}
       </label>
       {error && <p className="mt-3 rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-200 animate-shake">{t(error.text)}</p>}
-      <button type="button" disabled={pending} onClick={submit} className="btn-shine mt-6 flex h-14 w-full items-center justify-center gap-2 rounded-2xl font-semibold text-plum-950 disabled:opacity-70">
-        {pending ? <span className="h-5 w-5 animate-spin rounded-full border-2 border-plum-950/30 border-t-plum-950" /> : <CheckIcon />}
-        {t("Confirmer ma réservation")}
-      </button>
+      {client?.kind === "client" ? (
+        <button type="button" disabled={pending} onClick={submit} className="btn-shine mt-6 flex h-14 w-full items-center justify-center gap-2 rounded-2xl font-semibold text-plum-950 disabled:opacity-70">
+          {pending ? <span className="h-5 w-5 animate-spin rounded-full border-2 border-plum-950/30 border-t-plum-950" /> : <CheckIcon />}
+          {t("Confirmer ma réservation")}
+        </button>
+      ) : client === null ? (
+        <a href={`/login?next=${encodeURIComponent(resume)}`} className="btn-shine mt-6 flex h-14 w-full items-center justify-center gap-2 rounded-2xl font-semibold text-plum-950">
+          {t("Se connecter pour confirmer")}
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+// Compte utilisé pour la réservation : client connecté, invitation à se connecter, ou compte salon.
+function AccountPanel({ client, resume }: { client: BookingClient; resume: string }) {
+  const { t } = useI18n();
+  if (client?.kind === "client") {
+    return (
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-emerald-400/25 bg-emerald-400/[0.07] px-4 py-3.5">
+        <span className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-blush to-champagne font-semibold text-plum-950">
+          {client.firstName[0]}
+          {client.lastName[0]}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm text-white">
+            {t("Réservé au nom de")} <strong>{client.firstName} {client.lastName}</strong>
+          </p>
+          <p className="truncate text-xs text-white/55" dir="ltr">
+            {client.phone ? `+216 ${client.phone}` : ""}
+            {client.email ? ` · ${client.email}` : ""}
+          </p>
+        </div>
+      </div>
+    );
+  }
+  if (client?.kind === "staff") {
+    return (
+      <p className="rounded-2xl border border-amber-300/30 bg-amber-300/10 px-4 py-3.5 text-sm text-amber-100">
+        {t("Vous êtes connecté avec un compte salon. Pour réserver comme client, déconnectez-vous puis connectez-vous avec un compte client.")}
+      </p>
+    );
+  }
+  return (
+    <div className="rounded-2xl border border-rose-gold/30 bg-rose-gold/[0.08] p-5">
+      <p className="font-medium text-white">{t("Plus qu'une étape : votre compte client")}</p>
+      <p className="mt-1 text-sm text-white/60">
+        {t("Votre créneau est prêt. Connectez-vous ou créez votre compte pour confirmer, payer en ligne et retrouver vos rendez-vous.")}
+      </p>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <a href={`/register?type=client&next=${encodeURIComponent(resume)}`} className="btn-shine rounded-xl px-4 py-2.5 text-center text-sm font-semibold text-plum-950">
+          {t("Créer mon compte")}
+        </a>
+        <a href={`/login?next=${encodeURIComponent(resume)}`} className="rounded-xl border border-white/15 px-4 py-2.5 text-center text-sm font-medium text-white transition hover:border-white/30">
+          {t("J'ai déjà un compte")}
+        </a>
+      </div>
     </div>
   );
 }

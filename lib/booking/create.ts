@@ -122,17 +122,25 @@ export async function resolveItems(organizationId: string, selection: Selection,
 // Retrouve le client par téléphone dans le salon, ou le crée.
 export async function upsertCustomer(
   organizationId: string,
-  data: { firstName: string; lastName: string; phone: string; email?: string | null; remindersConsent?: boolean },
+  data: { firstName: string; lastName: string; phone: string; email?: string | null; remindersConsent?: boolean; userId?: string | null },
 ) {
   await connectDB();
-  const existing = await Customer.findOne({ organizationId, phone: data.phone });
+  // Compte client : sa fiche dans ce salon, sinon la fiche existante à son numéro (non encore reliée à un compte).
+  const existing =
+    (data.userId ? await Customer.findOne({ organizationId, userId: data.userId }) : null) ??
+    (await Customer.findOne({ organizationId, phone: data.phone, ...(data.userId ? { userId: null } : {}) }));
   if (existing) {
     if (data.email && !existing.email) existing.email = data.email;
     if (data.remindersConsent !== undefined) existing.remindersConsent = data.remindersConsent;
+    if (data.userId && !existing.userId) existing.userId = new Types.ObjectId(data.userId);
     await existing.save();
     return existing;
   }
-  return Customer.create({ organizationId, ...data, email: data.email || undefined });
+  // Le numéro existe déjà dans ce salon, mais relié à un autre compte : on ne mélange pas les historiques.
+  if (data.userId && (await Customer.exists({ organizationId, phone: data.phone }))) {
+    throw new BookingError("Ce numéro est déjà associé à un autre compte dans ce salon. Contactez le salon.");
+  }
+  return Customer.create({ organizationId, ...data, email: data.email || undefined, userId: data.userId || undefined });
 }
 
 export async function createBooking(params: {

@@ -2,39 +2,32 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
+import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
+import { auth, findByIdentifier, signIn, signOut } from "@/auth";
 import { logEvent } from "@/lib/audit";
 import { connectDB } from "@/lib/db";
 import {
+  ClientRegisterSchema,
   ForgotPasswordSchema,
   LoginSchema,
   RegisterSchema,
   ResetPasswordSchema,
   isPhone,
   normalizePhone,
+  safeNext,
   type FormState,
 } from "@/lib/definitions";
-import type { Role } from "@/lib/enums";
 import { Center, Organization, PasswordResetToken, User } from "@/lib/models/core";
-import { createSession, deleteSession, readSession } from "@/lib/session";
 
 const RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 const LOCK_MS = 5 * 60 * 1000;
 
-// Hash factice : on compare toujours un mot de passe, même si le compte n'existe pas,
-// pour ne pas révéler par le temps de réponse quels comptes existent.
-const DUMMY_HASH = bcrypt.hashSync("dummy-password-for-timing", 10);
 
 // Limitation simple des tentatives (mémoire du serveur, suffisant pour le MVP).
 const attempts = new Map<string, { count: number; lockedUntil: number }>();
 
-async function findByIdentifier(identifier: string) {
-  await connectDB();
-  return isPhone(identifier)
-    ? User.findOne({ phone: normalizePhone(identifier) }).lean()
-    : User.findOne({ email: identifier.toLowerCase() }).lean();
-}
 
 const ids = (user: { _id: unknown; organizationId?: unknown }) => ({
   userId: String(user._id),
@@ -64,22 +57,17 @@ export async function login(_state: FormState, formData: FormData): Promise<Form
   }
 
   try {
-    const user = await findByIdentifier(identifier);
-    const valid = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
-
-    if (!user || !valid) {
+    // NextAuth vérifie l'identifiant et le mot de passe (auth.ts) puis pose le cookie de session.
+    await signIn("credentials", { identifier, password, remember: formData.get("remember") === "on" ? "on" : "", redirect: false });
+  } catch (error) {
+    if (error instanceof AuthError && error.type === "CredentialsSignin") {
       const count = (entry?.count ?? 0) + 1;
       const locked = count >= MAX_ATTEMPTS;
       attempts.set(key, { count: locked ? 0 : count, lockedUntil: locked ? Date.now() + LOCK_MS : 0 });
+      const user = await findByIdentifier(identifier).catch(() => null);
       if (user) await logEvent(locked ? "LOGIN_LOCKED" : "LOGIN_FAILED", ids(user));
       return { message: "Identifiant ou mot de passe incorrect.", values: { identifier } };
     }
-
-    attempts.delete(key);
-    await User.updateOne({ _id: user._id }, { lastLoginAt: new Date() });
-    await logEvent("LOGIN_SUCCESS", { ...ids(user), detail: isPhone(identifier) ? "phone" : "email" });
-    await createSession({ ...ids(user), role: user.role as Role }, formData.get("remember") === "on");
-  } catch (error) {
     console.error("Erreur login :", error);
     return {
       message: "Impossible de joindre la base de données. Vérifiez l'adresse IP autorisée sur MongoDB Atlas.",
@@ -87,9 +75,15 @@ export async function login(_state: FormState, formData: FormData): Promise<Form
     };
   }
 
+  attempts.delete(key);
+  const user = await findByIdentifier(identifier);
+  if (user) {
+    await User.updateOne({ _id: user._id }, { lastLoginAt: new Date() });
+    await logEvent("LOGIN_SUCCESS", { ...ids(user), detail: isPhone(identifier) ? "phone" : "email" });
+  }
+
   // Retour à la page demandée avant la connexion (chemins internes uniquement).
-  const next = String(formData.get("next") ?? "");
-  redirect(next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard");
+  redirect(safeNext(formData.get("next")) ?? "/dashboard");
 }
 
 function slugify(value: string) {
@@ -168,7 +162,7 @@ export async function register(_state: FormState, formData: FormData): Promise<F
     });
 
     await logEvent("REGISTER", ids(user));
-    await createSession({ ...ids(user), role: "OWNER" });
+    await signIn("credentials", { identifier: data.email, password: data.password, remember: "on", redirect: false });
   } catch (error) {
     console.error("Erreur register :", error);
     return {
@@ -178,6 +172,51 @@ export async function register(_state: FormState, formData: FormData): Promise<F
   }
 
   redirect("/dashboard?welcome=1");
+}
+
+// Compte client : sans salon (organisation nulle), il réserve dans n'importe quel salon de la plateforme.
+// Ses rendez-vous lui sont rattachés par les fiches clients des salons (userId).
+export async function registerClient(_state: FormState, formData: FormData): Promise<FormState> {
+  const raw = Object.fromEntries(
+    ["firstName", "lastName", "phone", "email", "password", "confirmPassword"].map((k) => [k, String(formData.get(k) ?? "")]),
+  );
+  const values = Object.fromEntries(Object.entries(raw).filter(([k]) => !k.toLowerCase().includes("password")));
+  const parsed = ClientRegisterSchema.safeParse(raw);
+  if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors, values };
+
+  const data = parsed.data;
+  const phone = normalizePhone(data.phone);
+  try {
+    await connectDB();
+    const existing = await User.findOne({ $or: [{ email: data.email }, { phone }] }).select("email").lean();
+    if (existing) {
+      return {
+        errors:
+          existing.email === data.email
+            ? { email: ["Cet e-mail est déjà utilisé. Connectez-vous."] }
+            : { phone: ["Ce numéro est déjà utilisé. Connectez-vous."] },
+        values,
+      };
+    }
+    const user = await User.create({
+      firstName: data.firstName,
+      lastName: data.lastName,
+      email: data.email,
+      phone,
+      passwordHash: await bcrypt.hash(data.password, 12),
+      role: "CLIENT",
+      organizationId: null,
+      centerIds: [],
+      lastLoginAt: new Date(),
+    });
+    await logEvent("REGISTER", { ...ids(user), detail: "client" });
+    await signIn("credentials", { identifier: data.email, password: data.password, remember: "on", redirect: false });
+  } catch (error) {
+    console.error("Erreur registerClient :", error);
+    return { message: "Impossible de joindre la base de données. Réessayez.", values };
+  }
+
+  redirect(safeNext(formData.get("next")) ?? "/dashboard");
 }
 
 export async function forgotPassword(_state: FormState, formData: FormData): Promise<FormState> {
@@ -198,7 +237,7 @@ export async function forgotPassword(_state: FormState, formData: FormData): Pro
 
     const token = randomBytes(32).toString("base64url");
     const tokenHash = hashToken(token);
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
 
     await PasswordResetToken.create({
       userId: user._id,
@@ -252,8 +291,7 @@ export async function resetPassword(_state: FormState, formData: FormData): Prom
 }
 
 export async function logout() {
-  const session = await readSession();
-  if (session) await logEvent("LOGOUT", { userId: session.userId, organizationId: session.organizationId });
-  await deleteSession();
-  redirect("/login");
+  const session = await auth();
+  if (session?.user) await logEvent("LOGOUT", { userId: session.user.id, organizationId: session.user.organizationId });
+  await signOut({ redirectTo: "/login" });
 }
