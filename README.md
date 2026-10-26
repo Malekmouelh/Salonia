@@ -9,6 +9,9 @@ Next.js 16 (App Router) · TypeScript · Tailwind CSS 4 · **MongoDB Atlas (Mong
 - **Module 3 — Calendrier et réservations (Malek)** : calendrier jour/semaine/mois, disponibilités,
   réservation en ligne en 4 étapes, rappels, annulations, reports, liste d'attente, fiches clients,
   et IA : prédiction des absences, créneaux à remplir, chatbot de réservation.
+- **Module 4 — Équipe (Amine)** : liste du personnel, création de comptes STAFF, horaires individuels, congés et
+  absences, planning personnel hebdomadaire. Ces données sont **enregistrées et consultables**, mais ne modifient pas
+  encore les créneaux de réservation (voir « Module 4 » ci-dessous).
 - **Module 6 — Paiements, factures et pilotage financier (Salsabil)** : caisse (espèces, carte, mobile,
   paiement fractionné, acomptes), paiement en ligne, factures et reçus PDF numérotés, dépenses,
   tableau de bord multi-centres, exports PDF/CSV, et IA : assistant d'analyse, détection d'anomalies,
@@ -105,6 +108,72 @@ du Module 6) ; « Mes rendez-vous » sur son tableau de bord affiche ses rendez-
 Règles métier : pas de double réservation (revérification à l'enregistrement), fuseau Africa/Tunis,
 annulation/report en ligne jusqu'à 2 h avant, rappels uniquement avec consentement.
 
+## Module 4 — Équipe
+
+Périmètre réalisé (d'après le résumé du cahier des charges ; le texte intégral n'a pas été relu exigence par exigence) :
+
+| Exigence | Où | État |
+|---|---|---|
+| F4.1 Fiches employés : poste, compétences, centres d'affectation | `/dashboard/equipe` (liste, filtre par centre) ; « Ajouter un membre » | Implémenté. La modification du poste et des compétences d'un employé existant n'est pas encore proposée |
+| F4.2 Horaires de travail, congés, absences | Bouton « Horaires » (modal à trois états par jour) ; bouton « Absences » (liste, création, modification, suppression) | Implémenté **en enregistrement seul**. Jours fériés : non |
+| F4.3 Affectation des services aux praticiens selon leurs compétences | Compétences enregistrées (texte libre, suggestions tirées de `Service.requiredSkills`) | **Non** : aucun filtrage dans les créneaux ni dans `getPractitioners` |
+| F4.4 Pointage et suivi des heures · F4.5 Commissions et performance | — | Non réalisés (priorité I) |
+| F4.6 Vue personnelle du staff : planning et rendez-vous | `/dashboard/planning` (« Mon planning ») ; bouton « Planning » sur les cartes pour OWNER/MANAGER | Implémenté, lecture seule |
+
+**Pages et actions**
+- `/dashboard/equipe` : cartes du personnel (poste, compétences, centres, horaires personnalisés, absence en cours ou prochaine, sans motif).
+- Création d'un compte STAFF : prénom, nom, e-mail et/ou téléphone (au moins un), mot de passe temporaire saisi par le créateur
+  (règles de l'inscription : 8 caractères, une lettre, un chiffre, 72 octets UTF-8 au plus ; haché bcrypt, coût 12), poste, compétences,
+  au moins un centre. Le rôle est toujours `STAFF` et l'organisation celle du créateur ; toute autre valeur envoyée est ignorée.
+- Horaires individuels (`User.workingHours`) : par jour, trois états. Jour **absent** = comme le centre ; `null` = repos ;
+  `"09:00-17:00"` = plage (jamais au-delà de minuit). `workingHours: null` = tous les jours comme le centre.
+- Congés et absences (`StaffTimeOff`) : types congé (`LEAVE`) et absence exceptionnelle (`ABSENCE`), journée(s) complète(s) ou plage
+  horaire d'un seul jour, motif facultatif (120 caractères). Bornes : début au plus 365 jours dans le passé, fin au plus 730 jours
+  dans le futur, durée au plus 366 jours. Deux absences d'un même employé ne se chevauchent pas (contrôle applicatif, **non atomique**).
+  Le nombre de rendez-vous actifs concernés est affiché ; ils ne sont jamais modifiés ni annulés.
+- Planning (`lib/data/planning.ts`) : semaine du lundi au dimanche (heure de Tunis, `?week=YYYY-MM-DD`), rendez-vous de tous statuts
+  (annulés estompés), absences, pauses et fermetures, horaires du jour. Ni téléphone, ni notes, ni prix, ni motif.
+
+**Droits**
+
+| Action | OWNER | MANAGER | STAFF |
+|---|---|---|---|
+| Voir la liste de l'équipe | tous les employés de l'organisation | employés affectés à au moins un de ses centres | non |
+| Créer un compte STAFF | centres de l'organisation | uniquement ses centres | non |
+| Horaires et absences (voir, créer, modifier, supprimer) | tout employé de l'organisation | **uniquement si tous les centres de l'employé sont dans son périmètre** (sinon : bouton désactivé et explication) | non |
+| Planning | tout employé | rendez-vous limités à ses centres, même pour un employé partagé | le sien seulement (`?staff=` ignoré) |
+
+Un employé inconnu, d'une autre organisation, qui n'est pas un STAFF ou hors périmètre reçoit toujours le même message (« Employé introuvable. »).
+Les droits sont vérifiés côté serveur (`lib/team/scope.ts`, `lib/team/service.ts`, `lib/data/planning.ts`), pas seulement dans la navigation.
+
+**Données et audit** : champs optionnels `jobTitle`, `skills`, `workingHours` sur `User` ; collection `stafftimeoffs` (modèle `StaffTimeOff`,
+`lib/models/team.ts`). Événements du journal de sécurité : `STAFF_CREATED`, `STAFF_HOURS_UPDATED`, `STAFF_TIMEOFF_CREATED`,
+`STAFF_TIMEOFF_UPDATED`, `STAFF_TIMEOFF_DELETED` (employé, type et dates ; **jamais** le mot de passe ni le motif). Une modification sans
+changement réel ne produit ni écriture ni événement. Le motif d'une absence n'apparaît que dans le modal « Absences » des utilisateurs autorisés.
+
+**Limites connues**
+- **Les horaires individuels, les absences et les compétences n'influencent pas les créneaux de réservation** (`lib/booking/` ne les lit pas).
+  Un compte STAFF créé devient **immédiatement réservable** dans ses centres, avec les horaires du centre.
+- Pas de changement de mot de passe : l'employé garde le mot de passe temporaire. Il n'y a ni invitation par e-mail ni envoi automatique ;
+  le lien « mot de passe oublié » n'est affiché qu'en développement ou avec `DEMO_MODE`.
+- Pas de désactivation ni de suppression d'un employé ; pas de modification du poste, des compétences ou des centres d'un employé existant.
+- Une absence dont le début dépasse 365 jours dans le passé ne peut plus changer de dates (type et motif restent modifiables ; suppression possible).
+- Un employé affecté à plusieurs centres : ses horaires et ses absences valent pour tous ses centres (seul le propriétaire les modifie
+  si l'un des centres n'est pas celui du gérant). La disponibilité calculée par `lib/booking/` reste, elle, centre par centre.
+
+**Vérifications réalisées** (octobre 2026)
+- Tests automatiques : `npm test` (voir `lib/team/*.test.ts` et `lib/booking/*.test.ts`) avec une base MongoDB en mémoire ; commande et résultats
+  du dernier passage dans le compte rendu de l'étape 7. Les tests de `lib/booking/` fixent le comportement actuel de la réservation (dont ses limites)
+  avant toute intégration.
+- Navigateur, base de développement, sans écriture : liste de l'équipe (FR/AR, propriétaire, gérant, staff), formulaire de création (validation,
+  e-mail déjà utilisé), modal des horaires (validation, enregistrement sans changement).
+- Navigateur, base MongoDB en mémoire isolée (données jetables, serveur sur un autre port) : création, modification, suppression, chevauchements,
+  rendez-vous concernés, résumés sur les cartes et événements d'audit des absences ; planning (STAFF, OWNER, MANAGER, CLIENT, URL falsifiée,
+  semaines voisines, état vide, français et arabe RTL) ; aucun motif ni donnée client sensible dans les pages ni dans l'audit.
+
+**Parcours à vérifier encore** : création **réussie** d'un compte STAFF dans l'interface (puis connexion avec ce compte) ; enregistrement **réussi**
+des horaires dans l'interface ; mise en page sur grand écran ; intégration aux créneaux (à concevoir avec ses propres tests de non-régression).
+
 ## Module 6 — Paiements, factures et pilotage financier
 
 | Exigence | Où |
@@ -151,7 +220,7 @@ un jour sans saisie de caisse à Djerba et un achat de produits exceptionnel à 
 | Module | Ce que le Module 3 utilise | Fichier |
 |---|---|---|
 | 2 — Catalogue (Maya) | collections `services` et `packs` (nom, catégorie, durée, prix, centres) | `lib/models/catalog.ts` |
-| 4 — Équipe (Amine) | praticiens = utilisateurs `STAFF` affectés au centre (`centerIds`) | `lib/booking/availability.ts` |
+| 4 — Équipe (Amine) | praticiens = utilisateurs `STAFF` affectés au centre (`centerIds`) ; les horaires, absences et compétences du Module 4 ne sont **pas encore lus** | `lib/booking/availability.ts` |
 | 6 — Finances (Salsabil) | `bookings` (statut `COMPLETED`, `totalTnd`, `items`) ; le Module 6 passe un RDV réglé à `COMPLETED` | `lib/models/booking.ts`, `lib/finance/service.ts` |
 | Socle — Notifications | boîte d'envoi `notifications` (statut `QUEUED`) à brancher sur SMS/WhatsApp | `lib/models/booking.ts` |
 
@@ -168,7 +237,8 @@ un jour sans saisie de caisse à Djerba et un achat de produits exceptionnel à 
 
 ## Architecture
 
-- `lib/models/` — schémas Mongoose (`core`, `catalog`, `booking`, `finance`) · `lib/db.ts` — connexion unique
+- `lib/models/` — schémas Mongoose (`core`, `catalog`, `booking`, `finance`, `team`) · `lib/db.ts` — connexion unique
+- `lib/team/` — Module 4 : droits et centres, services d'écriture, validation, horaires, absences, planning, tests
 - `lib/finance/` — Module 6 : règles métier, rapports, IA, PDF, passerelle de paiement, tests
 - `lib/dal.ts` — Data Access Layer (`getCurrentUser`, `requireRole`, centres accessibles)
 - `lib/booking/` — disponibilités, création, rappels, prédiction, chatbot, fuseau horaire

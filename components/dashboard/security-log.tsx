@@ -45,6 +45,12 @@ const EVENTS: Record<AuthEventType, { label: string; tone: string }> = {
   EXPENSE_CREATED: { label: "Dépense ajoutée", tone: "bg-[#c9a0dc]" },
   EXPENSE_DELETED: { label: "Dépense supprimée", tone: "bg-red-400" },
   FINANCE_EXPORTED: { label: "Export financier", tone: "bg-sky-400" },
+  // Module 4 : équipe
+  STAFF_CREATED: { label: "Membre du personnel ajouté", tone: "bg-emerald-400" },
+  STAFF_HOURS_UPDATED: { label: "Horaires du personnel modifiés", tone: "bg-sky-400" },
+  STAFF_TIMEOFF_CREATED: { label: "Absence du personnel enregistrée", tone: "bg-emerald-400" },
+  STAFF_TIMEOFF_UPDATED: { label: "Absence du personnel modifiée", tone: "bg-sky-400" },
+  STAFF_TIMEOFF_DELETED: { label: "Absence du personnel supprimée", tone: "bg-red-400" },
 };
 
 // Fuseau et langue explicites : même rendu côté serveur et navigateur.
@@ -68,7 +74,8 @@ export function SecurityLog({ events }: { events: SecurityEvent[] }) {
     <ol className="relative space-y-1">
       <span aria-hidden className="absolute bottom-3 start-[7px] top-3 w-px bg-gradient-to-b from-white/20 to-transparent" />
       {events.map((e, i) => {
-        const meta = EVENTS[e.type];
+        // Base partagée : un module pas encore fusionné peut écrire un type inconnu ici, sans faire planter la page.
+        const meta = EVENTS[e.type as AuthEventType] ?? { label: "Activité", tone: "bg-white/40" };
         return (
           <li
             key={e.id}
