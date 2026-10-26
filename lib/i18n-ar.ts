@@ -982,4 +982,7 @@ export const AR: Record<string, string> = {
   "Réservation en ligne bientôt disponible": "الحجز عبر الإنترنت متاح قريباً",
   "Ce centre n'a pas encore d'équipe disponible en ligne. Choisissez un autre centre ou contactez directement le salon.": "هذا الفرع ليس لديه فريق متاح عبر الإنترنت بعد. اختر فرعاً آخر أو اتصل بالصالون مباشرة.",
   "Choisir un autre centre": "اختيار فرع آخر",
+  "Activité": "نشاط",
+  "Horaires d'un membre modifiés": "تم تعديل مواعيد أحد الأعضاء",
+  "Congé ajouté": "تمت إضافة إجازة",
 };

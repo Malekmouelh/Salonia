@@ -47,6 +47,12 @@ const EVENTS: Record<AuthEventType, { label: string; tone: string }> = {
   FINANCE_EXPORTED: { label: "Export financier", tone: "bg-sky-400" },
 };
 
+// Événements du Module 4 (équipe), en attente de fusion dans lib/enums.ts.
+const FALLBACK: Record<string, { label: string; tone: string }> = {
+  STAFF_HOURS_UPDATED: { label: "Horaires d'un membre modifiés", tone: "bg-sky-400" },
+  STAFF_TIMEOFF_CREATED: { label: "Congé ajouté", tone: "bg-amber-400" },
+};
+
 // Fuseau et langue explicites : même rendu côté serveur et navigateur.
 function formatDate(iso: string, lang: string) {
   return new Intl.DateTimeFormat(lang === "ar" ? "ar-TN" : "fr-TN", {
@@ -68,7 +74,8 @@ export function SecurityLog({ events }: { events: SecurityEvent[] }) {
     <ol className="relative space-y-1">
       <span aria-hidden className="absolute bottom-3 start-[7px] top-3 w-px bg-gradient-to-b from-white/20 to-transparent" />
       {events.map((e, i) => {
-        const meta = EVENTS[e.type];
+        // Base partagée : un module pas encore fusionné peut écrire un type inconnu ici, sans faire planter la page.
+        const meta = EVENTS[e.type as AuthEventType] ?? FALLBACK[e.type] ?? { label: "Activité", tone: "bg-white/40" };
         return (
           <li
             key={e.id}
