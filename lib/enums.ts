@@ -22,8 +22,14 @@ export const AUTH_EVENT_TYPES = [
   // Module 6
   "PAYMENT_RECORDED", "PAYMENT_REFUNDED", "INVOICE_ISSUED", "INVOICE_CANCELLED",
   "EXPENSE_CREATED", "EXPENSE_DELETED", "FINANCE_EXPORTED",
+  // Module 4 : équipe
+  "STAFF_CREATED", "STAFF_HOURS_UPDATED", "STAFF_TIMEOFF_CREATED", "STAFF_TIMEOFF_UPDATED", "STAFF_TIMEOFF_DELETED",
 ] as const;
 export type AuthEventType = (typeof AUTH_EVENT_TYPES)[number];
+
+// Module 4 : congés et absences du personnel (LEAVE = congé, ABSENCE = absence exceptionnelle)
+export const TIMEOFF_KINDS = ["LEAVE", "ABSENCE"] as const;
+export type TimeOffKind = (typeof TIMEOFF_KINDS)[number];
 
 // Module 2 : catalogue & promotions
 export const PROMOTION_TYPES = ["PERCENTAGE", "FIXED_AMOUNT"] as const;

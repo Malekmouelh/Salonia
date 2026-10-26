@@ -50,6 +50,9 @@ const password = z
   .regex(/[a-zA-Z]/, "Au moins une lettre.")
   .regex(/[0-9]/, "Au moins un chiffre.");
 
+// Même règle de mot de passe, réutilisable hors de ce fichier (création de comptes par le salon).
+export const PasswordSchema = password;
+
 export const LoginSchema = z.object({
   identifier: z
     .string()
