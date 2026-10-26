@@ -55,7 +55,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <head>
         <script dangerouslySetInnerHTML={{ __html: LANG_BOOT_SCRIPT }} />
       </head>
-      <body className="grain min-h-full flex flex-col">
+      <body suppressHydrationWarning className="grain min-h-full flex flex-col">
         {children}
         <PwaProvider />
       </body>
