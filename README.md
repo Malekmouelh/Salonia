@@ -94,6 +94,20 @@ annulation/report en ligne jusqu'à 2 h avant, rappels uniquement avec consentem
   ~80 %, erreur mesurée sur les 4 dernières semaines (backtest).
   L'IA propose, le gérant décide : aucune fonction IA ne modifie les données.
 
+**Compléments du module** (CRUD complet et règles de gestion) :
+
+| Fonction | Où |
+|---|---|
+| Historique des paiements (recherche, filtres, remboursement, annulation d'un lien en attente) | `/dashboard/finances/paiements` |
+| Clôture de caisse : comptage des espèces, écart, rapport PDF, verrouillage de la journée, réouverture (propriétaire) | page Caisse + `/api/finance/closings/[id]` |
+| Paramètres financiers : TVA, matricule fiscal, mentions de facture, acompte par défaut, droit d'encaisser du staff, paiement en ligne | `/dashboard/finances/parametres` (propriétaire) |
+| Espace client : ses factures et ses reçus en PDF (cahier §4) | `/dashboard/mes-paiements` |
+| Sécurité du paiement en ligne : 5 essais de carte maximum par lien, puis verrouillage | `lib/finance/service.ts` |
+
+**IA, détection d'anomalies** : en plus du CA, des dépenses, des remboursements et des remises, les **écarts de caisse**
+des clôtures sont analysés (écart ≥ 10 DT signalé, ≥ 50 DT important, 3 écarts ou plus sur un centre = alerte
+« répétés »). L'assistant dispose d'un outil `get_cash_closings`.
+
 **Règles métier** : montants TTC en dinars (3 décimales), TVA 19 % incluse détaillée sur la facture ; facture émise
 automatiquement au règlement complet, et la prestation passe à « Terminé » ; numérotation séquentielle par
 organisation et par année (un numéro annulé n'est jamais réutilisé) ; un remboursement ne modifie pas la facture
@@ -110,7 +124,8 @@ journal de sécurité.
 
 **Données de démo** : `npm run db:seed` crée aussi ~10 semaines de paiements et factures et 4 mois de dépenses
 (`npm run db:seed:finance` pour les régénérer seules), avec deux anomalies à faire détecter par l'IA :
-un jour sans saisie de caisse à Djerba et un achat de produits exceptionnel à Sousse.
+un jour sans saisie de caisse à Djerba, un achat de produits exceptionnel à Sousse, et des écarts de caisse
+(3 manques à Tunis, 1 excédent à Sousse).
 
 ## Contrats avec les autres modules
 

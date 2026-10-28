@@ -1,3 +1,11 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// FICHIER : app/dashboard/finances/depenses/page.tsx — LA PAGE « DÉPENSES » (F6.4)
+// ═══════════════════════════════════════════════════════════════════════════
+// ADRESSE : /dashboard/finances/depenses?period=month&center=all
+//   Suivi des dépenses (loyer, produits, salaires…) de chaque centre. Propriétaire et gérant.
+//   Le composant interactif <ExpenseManager> (components/finance/expense-manager.tsx) gère l'ajout,
+//   la modification et la suppression.
+// ═══════════════════════════════════════════════════════════════════════════
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
@@ -13,6 +21,7 @@ import { canViewFinance } from "@/lib/finance/service";
 
 export const metadata: Metadata = { title: "Dépenses" };
 
+// Coquille de la page (squelette de chargement pendant le calcul).
 export default function ExpensesPage({ searchParams }: PageProps<"/dashboard/finances/depenses">) {
   return (
     <main className="relative min-h-dvh overflow-hidden">
@@ -32,6 +41,7 @@ async function Expenses({ searchParams }: { searchParams: PageProps<"/dashboard/
   const str = (v: string | string[] | undefined) => (typeof v === "string" ? v : "");
   const center = str(params.center) || "all";
   const range = resolveRange(str(params.period) || "month");
+  // Périmètre de l'utilisateur (tous ses centres) : sert aux listes déroulantes et à la valeur par défaut.
   const scope = financeScope(user);
   if (!scope) redirect("/dashboard");
   const expenses = await listExpenses(user, { centerId: center === "all" ? undefined : center, from: range.from, to: range.to });
@@ -51,6 +61,8 @@ async function Expenses({ searchParams }: { searchParams: PageProps<"/dashboard/
       <FinanceFilters periods={PERIODS} period={range.key} centers={scope.centers} center={center}>
         <ExportMenu query={`period=${range.key}&center=${center}`} />
       </FinanceFilters>
+      {/* `defaultCenter` : centre présélectionné dans le formulaire (celui filtré, sinon le premier).
+          `canEditSalaries` : seul le propriétaire peut saisir/modifier des salaires. */}
       <ExpenseManager
         expenses={expenses}
         centers={scope.centers}

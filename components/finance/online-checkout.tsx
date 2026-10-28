@@ -1,5 +1,20 @@
 "use client";
 
+// ═══════════════════════════════════════════════════════════════════════════
+// FICHIER : components/finance/online-checkout.tsx — LE FORMULAIRE DE PAIEMENT PAR CARTE (F6.2)
+// ═══════════════════════════════════════════════════════════════════════════
+// Affiché sur la page publique /paiement/<jeton> (voir app/paiement/[token]/page.tsx).
+// Trois « écrans » possibles selon l'état du lien :
+//   1. PAYÉ      → « Paiement confirmé » + bouton de téléchargement du reçu ;
+//   2. INVALIDE  → « Ce lien n'est plus valable » (expiré, remplacé ou rendez-vous annulé) ;
+//   3. À PAYER   → formulaire de carte.
+//
+// SÉCURITÉ DES DONNÉES DE CARTE : elles sont saisies ici, envoyées UNE fois à la Server Action
+// `payOnlineAction`, transmises à la passerelle, puis jetées. Elles ne sont jamais enregistrées en base.
+// (En production avec un vrai prestataire, la saisie se ferait sur LEUR page sécurisée, ce qui
+// dispense le site de manipuler des numéros de carte : norme PCI-DSS.)
+// ═══════════════════════════════════════════════════════════════════════════
+
 import { useState, useTransition } from "react";
 import { payOnlineAction } from "@/app/actions/finance";
 import { inputClass, labelClass } from "@/components/calendar/status";
@@ -9,6 +24,7 @@ import { LockIcon } from "@/components/ui/icons";
 import { fmtDay, fmtMoney, fmtTime } from "@/lib/booking/format";
 import type { PaymentKind, PaymentStatus } from "@/lib/enums";
 
+// Résumé du lien de paiement (fourni par getPaymentLink dans lib/data/finance.ts).
 type Link = {
   salon: string;
   center: string;
@@ -26,17 +42,23 @@ type Link = {
 // à la passerelle et ne sont jamais enregistrées.
 export function OnlineCheckout({ token, link }: { token: string; link: Link }) {
   const { t, lang } = useI18n();
-  const [pending, startTransition] = useTransition();
+  const [pending, startTransition] = useTransition(); // true pendant le traitement du paiement
   const [error, setError] = useState<string | null>(null);
+  const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null); // essais restants avant verrouillage du lien
+  // `paid` démarre à true si le lien a déjà été payé (le client rouvre son lien après coup).
   const [paid, setPaid] = useState(link.status === "PAID");
   const [card, setCard] = useState({ holder: "", cardNumber: "", expiry: "", cvc: "" });
 
+  // Mise en forme pendant la frappe : n'accepte que des chiffres (\D = non-chiffre, supprimé), 19 max,
+  // et insère un espace tous les 4 chiffres (« 4242 4242 … »). `(?=\d)` : « suivi d'un chiffre ».
   const formatCard = (v: string) => v.replace(/\D/g, "").slice(0, 19).replace(/(\d{4})(?=\d)/g, "$1 ");
+  // Date d'expiration : 4 chiffres max, avec « / » inséré après les 2 premiers (« 1228 » → « 12/28 »).
   const formatExpiry = (v: string) => {
     const d = v.replace(/\D/g, "").slice(0, 4);
     return d.length > 2 ? `${d.slice(0, 2)}/${d.slice(2)}` : d;
   };
 
+  // Encadré récapitulatif (nature du paiement, montant, prestation, lieu et date), affiché dans les écrans 1 et 3.
   const summary = (
     <div className="rounded-2xl bg-white/[0.05] p-5">
       <p className="text-xs uppercase tracking-wider text-white/45">{t(link.kind === "DEPOSIT" ? "Acompte de réservation" : "Règlement de votre rendez-vous")}</p>
@@ -48,6 +70,7 @@ export function OnlineCheckout({ token, link }: { token: string; link: Link }) {
     </div>
   );
 
+  // ── Écran 1 : paiement confirmé ──
   if (paid) {
     return (
       <div className="glass mt-6 space-y-5 rounded-[2rem] p-7 text-center animate-fade-up">
@@ -57,6 +80,7 @@ export function OnlineCheckout({ token, link }: { token: string; link: Link }) {
           {t("Merci")} {link.firstName} ! {t("Votre paiement a bien été reçu par")} {link.salon}.
         </p>
         {summary}
+        {/* Reçu PDF : route publique /paiement/<jeton>/recu (accessible grâce au jeton, sans connexion). */}
         <a href={`/paiement/${token}/recu`} target="_blank" rel="noreferrer" className="btn-shine inline-block rounded-2xl px-6 py-3 text-sm font-semibold text-plum-950">
           {t("Télécharger le reçu (PDF)")}
         </a>
@@ -64,6 +88,7 @@ export function OnlineCheckout({ token, link }: { token: string; link: Link }) {
     );
   }
 
+  // ── Écran 2 : lien invalide (expiré, annulé, remplacé par un nouveau lien, ou rendez-vous annulé) ──
   if (link.status !== "PENDING" || link.bookingCancelled) {
     return (
       <div className="glass mt-6 space-y-4 rounded-[2rem] p-7 text-center">
@@ -75,6 +100,7 @@ export function OnlineCheckout({ token, link }: { token: string; link: Link }) {
     );
   }
 
+  // ── Écran 3 : le formulaire de carte ──
   return (
     <div className="glass mt-6 rounded-[2rem] p-7 animate-fade-up">
       <h1 className="font-display text-3xl text-white">
@@ -87,15 +113,22 @@ export function OnlineCheckout({ token, link }: { token: string; link: Link }) {
       <form
         className="mt-6 space-y-4"
         onSubmit={(e) => {
-          e.preventDefault();
+          e.preventDefault(); // empêche le rechargement de la page
           setError(null);
+          // On envoie jeton + champs de la carte à la Server Action. `...card` insère holder, cardNumber, expiry, cvc.
           startTransition(async () => {
             const r = await payOnlineAction({ token, ...card });
-            if (r.error) setError(r.error);
-            else setPaid(true);
+            if (r.error) {
+              setError(r.error);
+              setAttemptsLeft(r.attemptsLeft ?? null);
+            }
+            else setPaid(true); // succès : on bascule sur l'écran 1
           });
         }}
       >
+        {/* Les attributs `autoComplete="cc-…"` permettent au navigateur de proposer la carte enregistrée.
+            `dir="ltr"` force l'écriture de gauche à droite pour les numéros, même en interface arabe.
+            `inputMode="numeric"` ouvre le clavier numérique sur téléphone. */}
         <div>
           <label className={labelClass} htmlFor="holder">{t("Titulaire de la carte")}</label>
           <input id="holder" autoComplete="cc-name" required value={card.holder} onChange={(e) => setCard({ ...card, holder: e.target.value })} className={inputClass} />
@@ -114,7 +147,13 @@ export function OnlineCheckout({ token, link }: { token: string; link: Link }) {
             <input id="cvc" dir="ltr" inputMode="numeric" autoComplete="cc-csc" required maxLength={4} value={card.cvc} onChange={(e) => setCard({ ...card, cvc: e.target.value.replace(/\D/g, "") })} className={inputClass} />
           </div>
         </div>
-        {error && <Alert>{t(error)}</Alert>}
+        {/* Message d'erreur de la passerelle (« Numéro de carte invalide », « Paiement refusé par la banque »…). */}
+        {error && (
+          <Alert>
+            {t(error)}
+            {attemptsLeft !== null && ` · ${attemptsLeft} ${t("essai(s) restant(s)")}`}
+          </Alert>
+        )}
         <button type="submit" disabled={pending} className="btn-shine flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold text-plum-950 disabled:opacity-60">
           <LockIcon width={16} height={16} />
           {pending ? t("Paiement en cours…") : `${t("Payer")} ${fmtMoney(link.amountTnd, lang)}`}

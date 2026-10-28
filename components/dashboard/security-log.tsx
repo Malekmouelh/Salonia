@@ -34,6 +34,10 @@ const EVENTS: Record<AuthEventType, { label: string; tone: string }> = {
   EXPENSE_CREATED: { label: "Dépense ajoutée", tone: "bg-[#c9a0dc]" },
   EXPENSE_DELETED: { label: "Dépense supprimée", tone: "bg-red-400" },
   FINANCE_EXPORTED: { label: "Export financier", tone: "bg-sky-400" },
+  PAYMENT_LINK_CANCELLED: { label: "Lien de paiement annulé", tone: "bg-amber-400" },
+  CASH_CLOSED: { label: "Caisse clôturée", tone: "bg-emerald-400" },
+  CASH_REOPENED: { label: "Caisse rouverte", tone: "bg-amber-400" },
+  FINANCE_SETTINGS_UPDATED: { label: "Paramètres financiers modifiés", tone: "bg-sky-400" },
 };
 
 // Fuseau et langue explicites : même rendu côté serveur et navigateur.

@@ -10,7 +10,7 @@ import { addDays, addMinutes, fromLocal, hhmmToMinutes, toLocal, WEEKDAYS, type 
 import { AvailabilityBlock, Booking, Customer, Notification, WaitlistEntry } from "../lib/models/booking";
 import { Pack, Service } from "../lib/models/catalog";
 import { AuthEvent, Center, Organization, PasswordResetToken, User } from "../lib/models/core";
-import { Expense, Invoice, Payment } from "../lib/models/finance";
+import { CashClosing, Expense, FinanceSettings, Invoice, Payment } from "../lib/models/finance";
 import { seedFinance } from "./seed-finance";
 
 // Générateur pseudo-aléatoire reproductible : le même jeu de données à chaque exécution.
@@ -45,7 +45,7 @@ async function main() {
       Center.deleteMany(filter), Service.deleteMany(filter), Pack.deleteMany(filter), Customer.deleteMany(filter),
       Booking.deleteMany(filter), AvailabilityBlock.deleteMany(filter), WaitlistEntry.deleteMany(filter),
       Notification.deleteMany(filter), AuthEvent.deleteMany(filter),
-      Payment.deleteMany(filter), Invoice.deleteMany(filter), Expense.deleteMany(filter),
+      Payment.deleteMany(filter), Invoice.deleteMany(filter), Expense.deleteMany(filter), CashClosing.deleteMany(filter), FinanceSettings.deleteMany(filter),
     ]);
     await Organization.deleteOne({ _id: old._id });
   }
