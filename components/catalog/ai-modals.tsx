@@ -174,7 +174,7 @@ export function PricingAnalysisModal({
                 <SparkleIcon width={14} height={14} />
                 <span>{t("Synthèse de l'audit")}</span>
                 <span className="ms-auto rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/60">
-                  {analysis.source === "ai" ? t("Propulsé par Claude IA") : t("Audit analytique")}
+                  {analysis.source === "ai" ? t("Généré par l'IA") : t("Audit analytique")}
                 </span>
               </div>
               <p className="mt-2 text-xs leading-relaxed text-white/80">{analysis.summary}</p>

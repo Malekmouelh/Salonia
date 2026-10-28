@@ -917,7 +917,7 @@ export const AR: Record<string, string> = {
   "Analyse comparative en cours…": "جارٍ التحليل المقارن…",
   "Évaluation de la cohérence tarifaire par rapport au marché tunisien.": "تقييم تماسك الأسعار مقارنة بالسوق التونسية.",
   "Synthèse de l'audit": "ملخص التدقيق",
-  "Propulsé par Claude IA": "مدعوم بـ Claude AI",
+  "Généré par l'IA": "مُولَّد بالذكاء الاصطناعي",
   "Audit analytique": "تدقيق تحليلي",
   "Services surévalués": "خدمات بأسعار مرتفعة",
   "Prix nettement supérieurs aux moyennes constatées.": "أسعار أعلى بكثير من المتوسطات الملاحظة.",
