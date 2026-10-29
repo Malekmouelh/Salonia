@@ -17,6 +17,9 @@ const OrganizationSchema = new Schema(
     slug: { type: String, required: true, unique: true },
     // Catalogue proposé par l'assistant IA, à importer par le module Catalogue.
     catalogDraft: { type: Schema.Types.Mixed, default: null },
+    // Module 1 : Vitrine et personnalisation (Ghalia)
+    theme: { type: Schema.Types.Mixed, default: null },
+    features: { type: Schema.Types.Mixed, default: null },
   },
   { timestamps: true },
 );

@@ -185,22 +185,26 @@ export function BarList({
   rows,
   empty,
   translateLabels = false,
+  formatValue,
 }: {
   rows: { key: string; label: string; amount: number; detail?: string }[];
   empty: string;
   translateLabels?: boolean;
+  // Facultatif : formate la valeur autrement qu'en dinars (ex. quantités du Module 5). Par défaut : montant en DT.
+  formatValue?: (value: number, lang: string) => string;
 }) {
   const { t, lang } = useI18n();
   if (rows.length === 0) return <p className="py-6 text-center text-sm text-white/45">{t(empty)}</p>;
   const max = Math.max(...rows.map((r) => r.amount), 1);
+  const format = formatValue ?? fmtMoney;
   return (
     <ul className="space-y-3">
       {rows.map((r) => (
-        <li key={r.key} className="group" title={`${translateLabels ? t(r.label) : r.label} · ${fmtMoney(r.amount, lang)}${r.detail ? ` · ${r.detail}` : ""}`}>
+        <li key={r.key} className="group" title={`${translateLabels ? t(r.label) : r.label} · ${format(r.amount, lang)}${r.detail ? ` · ${r.detail}` : ""}`}>
           <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
             <span className="truncate text-white/80">{translateLabels ? t(r.label) : r.label}</span>
             <span className="shrink-0 tabular-nums text-white">
-              {fmtMoney(r.amount, lang)}
+              {format(r.amount, lang)}
               {r.detail && <span className="ms-1.5 text-xs text-white/40">{r.detail}</span>}
             </span>
           </div>
