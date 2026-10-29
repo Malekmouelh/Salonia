@@ -23,6 +23,12 @@ const EVENTS: Record<AuthEventType, { label: string; tone: string }> = {
   PASSWORD_RESET: { label: "Mot de passe modifié", tone: "bg-sky-400" },
   CENTER_CREATED: { label: "Centre ajouté", tone: "bg-rose-gold" },
   AI_SETUP_APPLIED: { label: "Configuration IA appliquée", tone: "bg-[#c9a0dc]" },
+  // Module 1 : vitrine et personnalisation
+  THEME_UPDATED: { label: "Design de la vitrine modifié", tone: "bg-rose-gold" },
+  FEATURES_UPDATED: { label: "Fonctionnalités modifiées", tone: "bg-champagne" },
+  REVIEW_MODERATED: { label: "Avis modéré ou supprimé", tone: "bg-sky-400" },
+  REALIZATION_CREATED: { label: "Réalisation ajoutée à la galerie", tone: "bg-emerald-400" },
+  REALIZATION_DELETED: { label: "Réalisation retirée de la galerie", tone: "bg-red-400" },
   // Module 2 : catalogue
   SERVICE_CREATED: { label: "Service créé", tone: "bg-emerald-400" },
   SERVICE_UPDATED: { label: "Service modifié", tone: "bg-sky-400" },

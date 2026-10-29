@@ -45,7 +45,7 @@ const PERMISSIONS: Record<Role, string[]> = {
 // Modules du cahier des charges (version Salonia) : le socle et les Modules 3 et 6 sont livrés.
 const MODULES = [
   { name: "Socle : comptes & multi-centres", icon: ShieldIcon, status: "Actif", color: "from-blush to-rose-gold" },
-  { name: "Vitrine & personnalisation", icon: PaletteIcon, status: "Bientôt", color: "from-rose-gold to-champagne" },
+  { name: "Vitrine & personnalisation", icon: PaletteIcon, status: "Actif", color: "from-rose-gold to-champagne", href: "/dashboard/vitrine" },
   { name: "Catalogue & packs", icon: SparkleIcon, status: "Actif", color: "from-[#9fd8cb] to-champagne" },
   { name: "Calendrier & réservations", icon: CalendarIcon, status: "Actif", color: "from-champagne to-gold" },
   { name: "Équipe", icon: UsersIcon, status: "Bientôt", color: "from-[#c9a0dc] to-blush" },
