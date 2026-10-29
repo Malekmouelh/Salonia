@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Rapport Technique & Fiche de Soutenance — Module 1 : Vitrine & Personnalisation</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=JetBrains+Mono:wght@400;600&display=swap');
+
+    @page {
+      size: A4;
+      margin: 14mm 14mm 14mm 14mm;
+      @bottom-right {
+        content: counter(page) " / " counter(pages);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #1e1b22;
+      background-color: #ffffff;
+      line-height: 1.5;
+      font-size: 10pt;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* Page Breaks */
+    .page-break {
+      page-break-before: always;
+    }
+    .avoid-break {
+      page-break-inside: avoid;
+    }
+
+    /* En-tête officiel */
+    .header-box {
+      border: 1.5px solid #2a0f25;
+      background: linear-gradient(135deg, #1a0a17 0%, #2a0f25 100%);
+      color: #ffffff;
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 20px;
+    }
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(232, 180, 160, 0.3);
+      padding-bottom: 12px;
+      margin-bottom: 12px;
+    }
+    .logo-badge {
+      font-family: 'Playfair Display', serif;
+      font-size: 20pt;
+      font-weight: 700;
+      color: #e8b4a0;
+      letter-spacing: -0.5px;
+    }
+    .header-meta {
+      text-align: right;
+      font-size: 8.5pt;
+      color: #f3d9cf;
+    }
+    .header-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 16pt;
+      font-weight: 700;
+      margin: 0 0 6px 0;
+      color: #ffffff;
+    }
+    .header-subtitle {
+      font-size: 9.5pt;
+      color: rgba(255, 255, 255, 0.85);
+      margin: 0;
+    }
+
+    /* Info Bar */
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .info-card {
+      background: #fbf7f8;
+      border: 1px solid #ead6dc;
+      border-radius: 8px;
+      padding: 8px 12px;
+    }
+    .info-label {
+      font-size: 7.5pt;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: #6b264e;
+      letter-spacing: 0.5px;
+      margin-bottom: 2px;
+    }
+    .info-value {
+      font-size: 9pt;
+      font-weight: 600;
+      color: #1a0a17;
+    }
+
+    /* Titres de Section */
+    h1.section-banner {
+      background: #2a0f25;
+      color: #ffffff;
+      font-size: 11pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      padding: 8px 14px;
+      border-radius: 6px;
+      margin-top: 18px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      border-left: 5px solid #e8b4a0;
+    }
+
+    h2.task-title {
+      font-size: 11pt;
+      color: #2a0f25;
+      border-bottom: 1.5px solid #e8b4a0;
+      padding-bottom: 4px;
+      margin-top: 16px;
+      margin-bottom: 10px;
+      font-weight: 700;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .task-tag {
+      background: #f5e8e4;
+      color: #9c4125;
+      font-size: 8pt;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid #e8b4a0;
+    }
+
+    h3.subtask-title {
+      font-size: 9.5pt;
+      font-weight: 700;
+      color: #4a154b;
+      margin-top: 8px;
+      margin-bottom: 4px;
+    }
+
+    p {
+      margin: 0 0 6px 0;
+      text-align: justify;
+    }
+
+    ul, ol {
+      margin: 0 0 8px 0;
+      padding-left: 18px;
+    }
+    li {
+      margin-bottom: 3px;
+    }
+
+    /* Boîtes de mise en valeur */
+    .callout {
+      background: #faf4f6;
+      border-left: 4px solid #6b264e;
+      padding: 8px 12px;
+      border-radius: 0 6px 6px 0;
+      margin-bottom: 8px;
+      font-size: 9pt;
+    }
+    .callout-title {
+      font-weight: 700;
+      color: #2a0f25;
+      margin-bottom: 2px;
+    }
+
+    .qa-box {
+      background: #fdfaf6;
+      border: 1px solid #e6d3c0;
+      border-radius: 6px;
+      padding: 8px 12px;
+      margin-top: 6px;
+      margin-bottom: 8px;
+    }
+    .question {
+      font-weight: 700;
+      color: #8c4308;
+      font-size: 8.5pt;
+      margin-bottom: 3px;
+    }
+    .answer {
+      font-size: 8.5pt;
+      color: #2b1f14;
+      margin: 0;
+      line-height: 1.4;
+    }
+
+    /* Code blocks */
+    code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8pt;
+      background: #f4ecf0;
+      color: #6b1442;
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+    pre {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 7.5pt;
+      background: #180916;
+      color: #f3d9cf;
+      padding: 8px 12px;
+      border-radius: 6px;
+      overflow-x: hidden;
+      margin: 4px 0 8px 0;
+      line-height: 1.35;
+    }
+
+    /* Tableaux */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 6px;
+      margin-bottom: 10px;
+      font-size: 8pt;
+    }
+    th {
+      background: #2a0f25;
+      color: #ffffff;
+      text-align: left;
+      padding: 6px 8px;
+      font-weight: 600;
+    }
+    td {
+      border: 1px solid #e5d7dd;
+      padding: 5px 8px;
+      vertical-align: top;
+    }
+    tr:nth-child(even) {
+      background: #faf5f7;
+    }
+
+    /* Badges */
+    .badge {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 7.5pt;
+      font-weight: 600;
+      margin-right: 4px;
+    }
+    .badge-primary { background: #e8b4a0; color: #1a0a17; }
+    .badge-dark { background: #2a0f25; color: #ffffff; }
+    .badge-success { background: #d1fae5; color: #065f46; }
+
+    /* Footer */
+    .doc-footer {
+      border-top: 1px solid #ead6dc;
+      padding-top: 8px;
+      margin-top: 16px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 7.5pt;
+      color: #777;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- EN-TÊTE PRINCIPAL -->
+  <div class="header-box">
+    <div class="header-top">
+      <div class="logo-badge">SALONIA</div>
+      <div class="header-meta">
+        <strong>Fiche d'Examen & Soutenance de Projet</strong><br>
+        Next.js 15 · MongoDB Mongoose · Tailwind 4 · React 19
+      </div>
+    </div>
+    <h1 class="header-title">Module 1 — Vitrine et Personnalisation (F1.1 à F1.6)</h1>
+    <p class="header-subtitle">
+      Dossier Technique d'Architecture, Validation de Saisie, Sécurité et Démonstration Pratique
+    </p>
+  </div>
+
+  <!-- BLOC IDENTITÉ -->
+  <div class="info-grid">
+    <div class="info-card">
+      <div class="info-label">Étudiante</div>
+      <div class="info-value">Ghalia Mimouna</div>
+    </div>
+    <div class="info-card">
+      <div class="info-label">Module Attribué</div>
+      <div class="info-value">Module 1 : Vitrine & Design</div>
+    </div>
+    <div class="info-card">
+      <div class="info-label">Tests de Non-Régression</div>
+      <div class="info-value" style="color: #059669;">797 / 797 Réussis (100%)</div>
+    </div>
+    <div class="info-card">
+      <div class="info-label">Statut du Code</div>
+      <div class="info-value" style="color: #059669;">Branche ghalya-mimouna</div>
+    </div>
+  </div>
+
+  <!-- SECTION 1 -->
+  <h1 class="section-banner">SECTION 1 : VUE D'ENSEMBLE ARCHITECTURALE & NON-RÉGRESSION</h1>
+
+  <h3 class="subtask-title">1.1 Positionnement dans l'App Router Next.js</h3>
+  <p>
+    Le Module 1 remplit le double rôle stratégique de la plateforme Salonia en séparant strictement l'espace d'administration et l'espace public :
+  </p>
+  <ul>
+    <li><strong>Espace Administration (<code>/dashboard/vitrine</code>)</strong> : Accessible uniquement aux propriétaires de salon (<code>Role.OWNER</code>). Piloté par des Server Actions Next.js avec validation Zod, audit log système et aperçu réactif en temps réel.</li>
+    <li><strong>Espace Public (<code>/salon/[slug]</code> et <code>/salon/[slug]/[centerId]</code>)</strong> : Vitrine web haute performance générée en Server-Side Rendering (SSR), accessible sans authentification, bilingue (Français/Arabe RTL), optimisée pour le SEO dynamique et les réseaux sociaux.</li>
+  </ul>
+
+  <h3 class="subtask-title">1.2 Stratégie d'Isolation Stricte & Non-Régression Collaborateur</h3>
+  <p>
+    Pour garantir l'intégrité du code de l'équipe et éviter tout conflit de merge ou de build :
+  </p>
+  <ul>
+    <li><strong>Modifications Purement Additives sur le Cœur (<code>lib/models/core.ts</code>)</strong> : L'<code>OrganizationSchema</code> existant a été complété par deux sous-documents stricts avec valeurs par défaut neutres : <code>theme</code> et <code>features</code>. Tous les tests existants des collègues sont demeurés 100% verts.</li>
+    <li><strong>Collections Dédiées et Étanches (<code>lib/models/vitrine.ts</code>)</strong> : Les avis clients (<code>Review</code>) et les réalisations du portfolio (<code>Realization</code>) disposent de collections isolées avec clés étrangères et index composés (<code>organizationId</code>, <code>createdAt</code>).</li>
+    <li><strong>Namespace Isolé sous <code>lib/vitrine/</code></strong> : Toute la logique métier (schémas Zod, algorithme QR Code vectoriel, services d'écriture) est cloisonnée sans interférence.</li>
+    <li><strong>Server Actions Fermées (<code>app/actions/vitrine.ts</code>)</strong> : Aucune route d'API partagée n'a été altérée.</li>
+  </ul>
+
+  <h3 class="subtask-title">1.3 Alignement avec les Standards Académiques du Cours</h3>
+  <ul>
+    <li><strong>Mongoose Singleton Pattern (<code>lib/db.ts</code>)</strong> : Instance unique de connexion globale réutilisée pour neutraliser les fuites de connexions en environnement Serverless / Fast-Refresh.</li>
+    <li><strong>Server Actions (<code>'use server'</code>)</strong> : Remplacement des routes REST par des appels RPC directs sécurisés nativement contre les attaques CSRF.</li>
+    <li><strong>Tailwind CSS 4 Tokens & Variables CSS</strong> : Thème dynamique piloté sans recompilation via <code>--vitrine-primary</code>, <code>--vitrine-secondary</code> et <code>--font-display</code>.</li>
+    <li><strong>Algorithme Vectoriel Pure TypeScript</strong> : Moteur QR Code autonome (polynômes de Reed-Solomon et corps de Galois GF(256)) à zéro dépendance npm vulnérable.</li>
+  </ul>
+
+  <div class="page-break"></div>
+
+  <!-- SECTION 2 -->
+  <h1 class="section-banner">SECTION 2 : DÉTAIL TECHNIQUE EXHAUSTIF PAR EXIGENCE (F1.1 À F1.6)</h1>
+
+  <!-- F1.1 -->
+  <div class="avoid-break">
+    <h2 class="task-title">
+      <span>F1.1 : Personnalisation du Design & Identité Visuelle</span>
+      <span class="task-tag">Priorité E</span>
+    </h2>
+    <p><strong>1. Rôle Fonctionnel :</strong> Permet au salon de configurer son identité de luxe : logo, bannière panoramique, palette de couleurs personnalisée ou presets signature (Rose Gold, Or Impérial), sélection de polices de prestige et mode sombre/clair.</p>
+    <p><strong>2. Flux Technique :</strong> <code>theme-editor.tsx</code> (état local) &rarr; <code>updateThemeAction()</code> &rarr; <code>ThemeConfigSchema.parse()</code> &rarr; MongoDB <code>updateTheme()</code> avec audit log &rarr; <code>revalidatePath</code> &rarr; Toast et réinitialisation de formulaire.</p>
+    <p><strong>3. Contrôle de Saisie & Sécurité :</strong></p>
+    <ul>
+      <li>Client : Sélecteurs natifs hexadécimaux, <code>maxLength={140}</code> (slogan) et <code>maxLength={1000}</code> (description). Upload d'image limité à 2 Mo en WebP/Base64.</li>
+      <li>Serveur (Zod) : <code>primaryColor: z.string().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/)</code>, <code>fontFamily: z.enum([...])</code>. RBAC : <code>requireRole(Role.OWNER)</code>.</li>
+    </ul>
+    <div class="qa-box">
+      <div class="question">Q. Encadrant : Pourquoi utiliser des variables CSS en ligne plutôt qu'une balise &lt;style&gt; générée dynamiquement ?</div>
+      <div class="answer"><strong>R. Étudiante :</strong> L'injection de chaînes CSS brutes dans une balise &lt;style&gt; ouvre la porte à des failles de CSS Injection / exfiltration de données. L'application via l'attribut React <code>style</code> de variables CSS validées par regex hexadécimale garantit que la valeur est strictement traitée comme un token de couleur, sans risque XSS.</div>
+    </div>
+  </div>
+
+  <!-- F1.2 -->
+  <div class="avoid-break" style="margin-top: 12px;">
+    <h2 class="task-title">
+      <span>F1.2 : Activation / Désactivation des Fonctionnalités</span>
+      <span class="task-tag">Priorité E</span>
+    </h2>
+    <p><strong>1. Rôle Fonctionnel :</strong> Permet au salon d'adapter sa vitrine à son modèle d'affaires (activation ou masquage en 1 clic : paiement en ligne, packs, fidélité, avis, galerie).</p>
+    <p><strong>2. Flux Technique :</strong> <code>feature-toggles.tsx</code> &rarr; <code>updateFeaturesAction()</code> &rarr; <code>FeaturesConfigSchema</code> (prétraitement booléen) &rarr; écriture MongoDB <code>$set: { features }</code> &rarr; <code>revalidatePath</code> masquant immédiatement les sections sur la vitrine publique.</p>
+    <p><strong>3. Contrôle de Saisie & Sécurité :</strong> Prétraitement Zod convertissant <code>"true" | "on"</code> en booléen strict. Élimination automatique (strip) de toute clé non autorisée par Zod.</p>
+    <div class="qa-box">
+      <div class="question">Q. Encadrant : Si un attaquant injecte un champ 'isAdmin: true' dans la requête, que se passe-t-il ?</div>
+      <div class="answer"><strong>R. Étudiante :</strong> Zod filtre par défaut toutes les propriétés non définies dans <code>FeaturesConfigSchema</code>. Le champ injecté est purement ignoré et la mutation est protégée par la vérification de session du propriétaire.</div>
+    </div>
+  </div>
+
+  <!-- F1.3 -->
+  <div class="avoid-break" style="margin-top: 12px;">
+    <h2 class="task-title">
+      <span>F1.3 : Vitrine Publique et QR Code Partageables</span>
+      <span class="task-tag">Priorité E</span>
+    </h2>
+    <p><strong>1. Rôle Fonctionnel :</strong> Vitrine publique accessible à <code>/salon/[slug]</code> et <code>/salon/[slug]/[centerId]</code> avec modal de partage en 1 clic et génération de QR Code vectoriel sans dépendance externe.</p>
+    <p><strong>2. Flux Technique :</strong> Server Component &rarr; <code>getPublicSalonShowcase(slug)</code> en requête Mongoose unique <code>.lean()</code> &rarr; Rendu SSR avec métadonnées OpenGraph &rarr; Clic sur « Partager & QR » générant le flux SVG en mémoire via <code>generateQrCodeSvg()</code>.</p>
+    <p><strong>3. Algorithme QR Code :</strong> Implémentation pure en TypeScript des polynômes de Reed-Solomon (correction d'erreurs Niveau M) et de la matrice binaire de Galois GF(256). Sortie en balises SVG vectorielles haute résolution.</p>
+    <div class="qa-box">
+      <div class="question">Q. Encadrant : Pourquoi avoir codé votre propre générateur QR Code au lieu d'utiliser un package npm ?</div>
+      <div class="answer"><strong>R. Étudiante :</strong> 1) Pour la sécurité logicielle (zéro risque d'attaque de chaîne d'approvisionnement npm). 2) Pour la performance : moins de 6 Ko, aucun moteur Canvas lourd côté serveur, et un rendu SVG vectoriel imprimable sans pixellisation.</div>
+    </div>
+  </div>
+
+  <div class="page-break"></div>
+
+  <!-- F1.4 -->
+  <div class="avoid-break">
+    <h2 class="task-title">
+      <span>F1.4 : Studio d'Invitations & Affiches Réseaux Sociaux</span>
+      <span class="task-tag">Priorité E</span>
+    </h2>
+    <p><strong>1. Rôle Fonctionnel :</strong> Génération instantanée d'affiches publicitaires de luxe au format Story Instagram (9:16 - 1080x1920) et Post Carré (1:1 - 1080x1080) avec QR Code incrusté, téléchargeables en PNG.</p>
+    <p><strong>2. Flux Technique :</strong> <code>invitation-studio.tsx</code> &rarr; Rendu Canvas HTML5 2D haute définition à 300 DPI virtuels (dégradés radiaux or champagne, masquage circulaire de photo <code>ctx.clip()</code>, typographie ombrée) &rarr; Export via <code>canvas.toBlob()</code> &rarr; Téléchargement direct.</p>
+    <p><strong>3. Sécurité Canvas (CORS) :</strong> Encodage des photos uploadées en Data-URLs Base64 locales pour empêcher le blocage de sécurité « Tainted Canvas » lors de l'export PNG.</p>
+    <div class="qa-box">
+      <div class="question">Q. Encadrant : Pourquoi générer l'image côté client via Canvas plutôt que côté serveur avec Puppeteer ou Sharp ?</div>
+      <div class="answer"><strong>R. Étudiante :</strong> Le calcul graphique 2D est déporté sur le processeur/GPU client, épargnant la RAM et le CPU du serveur. De plus, la cliente bénéficie d'un aperçu et d'un téléchargement instantanés à zéro latence réseau.</div>
+    </div>
+  </div>
+
+  <!-- F1.5 -->
+  <div class="avoid-break" style="margin-top: 12px;">
+    <h2 class="task-title">
+      <span>F1.5 : Galerie de Réalisations & Avis Clients Vérifiés</span>
+      <span class="task-tag">Priorité I</span>
+    </h2>
+    <p><strong>1. Rôle Fonctionnel :</strong> Preuve sociale et portfolio métier : soumission d'avis de 1 à 5 étoiles avec note moyenne calculée, et galerie photos filtrable par catégorie avec visionneuse agrandie (lightbox).</p>
+    <p><strong>2. Flux Technique & Optimistic UI :</strong> <code>createRealizationAction()</code> persiste dans MongoDB &rarr; Mise à jour optimiste locale immédiate dans l'état React (la réalisation apparaît en tête de liste sans recharger la page F5) &rarr; Toast vert de confirmation.</p>
+    <p><strong>3. Contrôle de Saisie (Zod) :</strong> <code>rating: z.coerce.number().int().min(1).max(5)</code>, <code>comment: z.string().min(3).max(500)</code>. Protection XSS native par échappement React JSX.</p>
+    <div class="qa-box">
+      <div class="question">Q. Encadrant : Comment assurez-vous la rapidité de calcul de la moyenne si le salon possède des milliers d'avis ?</div>
+      <div class="answer"><strong>R. Étudiante :</strong> La collection est indexée sur <code>{ organizationId: 1, createdAt: -1 }</code> et la requête n'extrait que le champ numérique <code>rating</code> via projection <code>.lean()</code>, ou via pipeline d'agrégation MongoDB <code>$group</code> avec <code>$avg</code> directement dans le moteur de base de données.</div>
+    </div>
+  </div>
+
+  <!-- F1.6 -->
+  <div class="avoid-break" style="margin-top: 12px;">
+    <h2 class="task-title">
+      <span>F1.6 : Interface Bilingue Français / Arabe avec Support RTL</span>
+      <span class="task-tag">Priorité I</span>
+    </h2>
+    <p><strong>1. Rôle Fonctionnel :</strong> Basculement complet de l'interface en Arabe ou Français : inversion de la direction de lecture (droite à gauche - RTL), inversion des icônes directionnelles et typographies arabes adaptées (Cairo, Amiri, Tajawal).</p>
+    <p><strong>2. Flux Technique :</strong> Script bloquant inline <code>LANG_BOOT_SCRIPT</code> dans <code>&lt;head&gt;</code> &rarr; Détection du cookie <code>salonia_lang</code> &rarr; Application de <code>dir="rtl"</code> avant le premier rendu HTML (Anti-FOUC) &rarr; Hook <code>useI18n()</code> et dictionnaire <code>lib/i18n-ar.ts</code>.</p>
+    <p><strong>3. Classes Logiques CSS :</strong> Utilisation des propriétés CSS logiques <code>start-</code>, <code>end-</code>, <code>ps-</code>, <code>pe-</code> et de la classe Tailwind <code>rtl:-scale-x-100</code> pour inverser automatiquement les flèches.</p>
+    <div class="qa-box">
+      <div class="question">Q. Encadrant : Comment évitez-vous le clignotement visuel (FOUC) lors du chargement en langue Arabe ?</div>
+      <div class="answer"><strong>R. Étudiante :</strong> Grâce au <code>LANG_BOOT_SCRIPT</code> injecté dans le <code>&lt;head&gt;</code> HTML. Il s'exécute de façon synchrone avant le parsing du corps de la page, définissant <code>dir="rtl"</code> et <code>lang="ar"</code> immédiatement avant le premier affichage graphique.</div>
+    </div>
+  </div>
+
+  <div class="page-break"></div>
+
+  <!-- SECTION 3 -->
+  <h1 class="section-banner">SECTION 3 : DÉMONSTRATION ORALE POUR LA SOUTENANCE</h1>
+
+  <h3 class="subtask-title">3.1 Le Pitch d'Introduction (3 Minutes Chrono)</h3>
+  <div class="callout">
+    <div class="callout-title">Discours à prononcer devant le jury :</div>
+    « Madame, Monsieur les membres du jury,<br>
+    J'ai eu l'honneur de concevoir et développer le <strong>Module 1 : Vitrine et Personnalisation</strong>, qui constitue la porte d'entrée commerciale de la plateforme Salonia.<br><br>
+    Mon objectif technique était triple :<br>
+    1. <strong>Offrir aux salons une liberté totale de personnalisation haut de gamme</strong> : identité visuelle, palettes harmonieuses, typographies haute couture et pilotage granulaire des fonctionnalités via Feature Toggles.<br>
+    2. <strong>Garantir aux clientes une expérience publique irréprochable</strong> : accès direct par QR Code vectoriel natif, vitrine responsive bilingue Français/Arabe avec support RTL parfait, galerie de réalisations et avis certifiés.<br>
+    3. <strong>Appliquer une rigueur d'ingénierie exemplaire</strong> : non-régression absolue sur le travail de mes collègues avec 797 tests validés, validation Zod systématique côté serveur, zéro vulnérabilité par élimination des dépendances superflues, et studio d'affiches publicitaires sur Canvas HTML5.<br><br>
+    Je vous invite à découvrir la démonstration concrète en direct. »
+  </div>
+
+  <h3 class="subtask-title">3.2 Scénario Chronologique de la Démo en Direct</h3>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 15%;">Étape</th>
+        <th style="width: 25%;">Écran / Action</th>
+        <th>Ce qu'il faut dire au Jury</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>1. Typographie</strong></td>
+        <td><code>/dashboard/vitrine</code><br>Cliquer sur <em>Cormorant Garamond</em> puis <em>Outfit</em></td>
+        <td><em>« Observez le banc d'essai typographique intégré : le nom du salon et les titres se transforment immédiatement sans rechargement de page. »</em></td>
+      </tr>
+      <tr>
+        <td><strong>2. Couleurs</strong></td>
+        <td><code>/dashboard/vitrine</code><br>Choisir le preset <em>Or Impérial</em></td>
+        <td><em>« La carte d'aperçu collante à droite s'actualise en temps réel grâce aux variables CSS dynamiques. »</em></td>
+      </tr>
+      <tr>
+        <td><strong>3. Sécurité</strong></td>
+        <td>Cliquer sur « Enregistrer »</td>
+        <td><em>« La soumission passe par une Server Action protégée par RBAC OWNER et validée par Zod. Un Toast confirme le succès. »</em></td>
+      </tr>
+      <tr>
+        <td><strong>4. Toggles</strong></td>
+        <td>Désactiver <em>Packs & Forfaits</em></td>
+        <td><em>« Grâce à revalidatePath, la vitrine masque automatiquement cette section pour les clientes. »</em></td>
+      </tr>
+      <tr>
+        <td><strong>5. Vitrine SSR</strong></td>
+        <td>Ouvrir <code>/salon/salon-yasmine</code></td>
+        <td><em>« Voici la vitrine publique SSR avec nos polices personnalisées et nos métadonnées OpenGraph SEO. »</em></td>
+      </tr>
+      <tr>
+        <td><strong>6. Mode RTL</strong></td>
+        <td>Cliquer sur le bouton <strong>AR</strong></td>
+        <td><em>« L'affichage bascule instantanément en Arabe : lecture de droite à gauche, polices Cairo/Amiri et inversion automatique des icônes. »</em></td>
+      </tr>
+      <tr>
+        <td><strong>7. Studio Affiches</strong></td>
+        <td>Onglet <em>Affiches</em> &rarr; Télécharger</td>
+        <td><em>« Le moteur Canvas HTML5 génère en local une affiche 1080x1920 avec le QR Code incrusté prête pour Instagram. »</em></td>
+      </tr>
+      <tr>
+        <td><strong>8. Galerie</strong></td>
+        <td>Ajouter une réalisation</td>
+        <td><em>« La réalisation apparaît immédiatement en tête de liste grâce à notre mise à jour optimiste React. »</em></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 class="subtask-title">3.3 Mots-Clés d'Ingénierie à Placer à l'Oral</h3>
+  <p>
+    <span class="badge badge-primary">Server Actions ('use server')</span>
+    <span class="badge badge-dark">Validation Zod Côté Serveur</span>
+    <span class="badge badge-success">797 Tests Validés (Non-régression)</span>
+    <span class="badge badge-primary">QR Code Mathématique Pur (Reed-Solomon)</span>
+    <span class="badge badge-dark">Variables CSS Dynamiques</span>
+    <span class="badge badge-success">Support RTL Natif (Anti-FOUC)</span>
+    <span class="badge badge-primary">Canvas HTML5 2D</span>
+  </p>
+
+  <div class="doc-footer">
+    <span>Salonia SaaS · Rapport de Soutenance Module 1</span>
+    <span>Auteure : Ghalia Mimouna · Tous droits réservés</span>
+  </div>
+
+</body>
+</html>

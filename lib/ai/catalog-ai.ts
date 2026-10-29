@@ -3,8 +3,50 @@ import Anthropic from "@anthropic-ai/sdk";
 // ─────────────────────────────────────────────────────────────────────────────
 // IA MODULE 2 — Fonctions intelligentes pour le catalogue de prestations
 // (Génération descriptions, suggestions de packs, analyse tarifaire)
-// Supporte l'API Anthropic avec repli hors-ligne automatique.
+// Fournisseurs : Google Gemini (GEMINI_API_KEY, offre gratuite) en priorité, sinon Anthropic
+// (ANTHROPIC_API_KEY), sinon repli hors-ligne automatique.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Modèle Gemini doté d'une offre gratuite ; GEMINI_MODEL permet d'en changer sans toucher au code.
+const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
+
+type GeminiResponse = { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+
+/** Envoie le prompt au modèle de langage configuré ; renvoie null si aucune clé n'est définie. */
+async function askModel(prompt: string, maxTokens: number): Promise<string | null> {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey) {
+    const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": geminiKey },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        // Marge pour le raisonnement interne des modèles Gemini récents, compté dans la limite.
+        generationConfig: { maxOutputTokens: maxTokens + 2048 },
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) throw new Error(`Gemini ${res.status} : ${(await res.text()).slice(0, 300)}`);
+    const data = (await res.json()) as GeminiResponse;
+    const text = (data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
+    if (!text) throw new Error("Gemini : réponse vide.");
+    return text;
+  }
+
+  if (process.env.ANTHROPIC_API_KEY) {
+    const client = new Anthropic();
+    const response = await client.messages.create({
+      model: "claude-opus-5-5",
+      max_tokens: maxTokens,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const firstBlock = response.content[0];
+    return firstBlock && firstBlock.type === "text" ? firstBlock.text.trim() : null;
+  }
+
+  return null;
+}
 
 export interface ServiceInputForDescription {
   name: string;
@@ -55,10 +97,8 @@ export async function generateServiceDescription(
       ? `Options disponibles : ${service.options.map((o) => `${o.name} (${o.values.map((v) => v.label).join(", ")})`).join("; ")}.`
       : "";
 
-  if (process.env.ANTHROPIC_API_KEY) {
-    try {
-      const client = new Anthropic();
-      const prompt = `Tu es rédacteur marketing expert pour les salons de beauté et de coiffure en Tunisie.
+  try {
+    const prompt = `Tu es rédacteur marketing expert pour les salons de beauté et de coiffure en Tunisie.
 Rédige une description courte (2 à 3 phrases percutantes, élégantes et vendeuses) pour cette prestation :
 - Nom : ${service.name}
 - Catégorie : ${service.category}
@@ -72,19 +112,10 @@ Directives :
 - Rédige en ${lang === "ar" ? "arabe moderne soigné" : "français soigné"}.
 - Retourne UNIQUEMENT le texte de la description, sans guillemets, sans titre et sans fioritures.`;
 
-      const response = await client.messages.create({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 250,
-        messages: [{ role: "user", content: prompt }],
-      });
-
-      const firstBlock = response.content[0];
-      if (firstBlock && firstBlock.type === "text" && firstBlock.text.trim()) {
-        return firstBlock.text.trim();
-      }
-    } catch (err) {
-      console.warn("Échec génération IA Anthropic pour description, utilisation repli hors-ligne :", err);
-    }
+    const text = await askModel(prompt, 250);
+    if (text) return text;
+  } catch (err) {
+    console.warn("Échec génération IA pour description, utilisation repli hors-ligne :", err);
   }
 
   // Repli hors-ligne intelligent adapté par catégorie
@@ -152,14 +183,12 @@ export interface MinimalService {
 export async function suggestPacks(services: MinimalService[]): Promise<PackSuggestion[]> {
   if (services.length < 2) return [];
 
-  if (process.env.ANTHROPIC_API_KEY) {
-    try {
-      const client = new Anthropic();
-      const servicesPrompt = services
-        .map((s) => `ID: "${s.id}" | Nom: "${s.name}" | Catégorie: "${s.category}" | Prix: ${s.priceTnd} DT | Durée: ${s.durationMinutes} min`)
-        .join("\n");
+  try {
+    const servicesPrompt = services
+      .map((s) => `ID: "${s.id}" | Nom: "${s.name}" | Catégorie: "${s.category}" | Prix: ${s.priceTnd} DT | Durée: ${s.durationMinutes} min`)
+      .join("\n");
 
-      const prompt = `Tu es consultant expert en merchandising pour les salons de beauté en Tunisie.
+    const prompt = `Tu es consultant expert en merchandising pour les salons de beauté en Tunisie.
 Voici les services actifs du salon :
 ${servicesPrompt}
 
@@ -172,47 +201,40 @@ Pour chaque pack :
 
 Réponds STRICTEMENT avec un tableau JSON valide contenant des objets avec { name, description, serviceIds, priceTnd }. Aucun texte avant ou après.`;
 
-      const response = await client.messages.create({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 800,
-        messages: [{ role: "user", content: prompt }],
-      });
+    const text = await askModel(prompt, 800);
+    if (text) {
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]) as Array<{
+          name: string;
+          description: string;
+          serviceIds: string[];
+          priceTnd: number;
+        }>;
 
-      const firstBlock = response.content[0];
-      if (firstBlock && firstBlock.type === "text") {
-        const jsonMatch = firstBlock.text.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]) as Array<{
-            name: string;
-            description: string;
-            serviceIds: string[];
-            priceTnd: number;
-          }>;
-
-          return parsed
-            .map((p) => {
-              const matched = services.filter((s) => p.serviceIds.includes(s.id));
-              if (matched.length < 2) return null;
-              const regularTotal = matched.reduce((sum, s) => sum + s.priceTnd, 0);
-              const packPrice = Math.min(regularTotal - 1, Math.max(5, Math.round(p.priceTnd)));
-              const savingsTnd = regularTotal - packPrice;
-              const savingsPercent = Math.round((savingsTnd / regularTotal) * 100);
-              return {
-                name: p.name,
-                description: p.description,
-                serviceIds: matched.map((s) => s.id),
-                priceTnd: packPrice,
-                regularPriceTnd: regularTotal,
-                savingsTnd,
-                savingsPercent,
-              };
-            })
-            .filter((p): p is PackSuggestion => p !== null);
-        }
+        return parsed
+          .map((p) => {
+            const matched = services.filter((s) => p.serviceIds.includes(s.id));
+            if (matched.length < 2) return null;
+            const regularTotal = matched.reduce((sum, s) => sum + s.priceTnd, 0);
+            const packPrice = Math.min(regularTotal - 1, Math.max(5, Math.round(p.priceTnd)));
+            const savingsTnd = regularTotal - packPrice;
+            const savingsPercent = Math.round((savingsTnd / regularTotal) * 100);
+            return {
+              name: p.name,
+              description: p.description,
+              serviceIds: matched.map((s) => s.id),
+              priceTnd: packPrice,
+              regularPriceTnd: regularTotal,
+              savingsTnd,
+              savingsPercent,
+            };
+          })
+          .filter((p): p is PackSuggestion => p !== null);
       }
-    } catch (err) {
-      console.warn("Échec suggestion packs IA Anthropic, utilisation du moteur heuristique :", err);
     }
+  } catch (err) {
+    console.warn("Échec suggestion packs IA, utilisation du moteur heuristique :", err);
   }
 
   // Moteur heuristique hors-ligne
@@ -320,10 +342,8 @@ export async function analyzePricing(
     services.length > 0 ? Math.round(services.reduce((acc, s) => acc + s.priceTnd, 0) / services.length) : 0;
   const categoriesCount = new Set(services.map((s) => s.category)).size;
 
-  if (process.env.ANTHROPIC_API_KEY) {
-    try {
-      const client = new Anthropic();
-      const prompt = `Tu es consultant expert en pricing et rentabilité pour les instituts de beauté et salons de coiffure en Tunisie.
+  try {
+    const prompt = `Tu es consultant expert en pricing et rentabilité pour les instituts de beauté et salons de coiffure en Tunisie.
 Voici la structure du salon :
 - Centres : ${centers.map((c) => `${c.name} (${c.governorate})`).join(", ")}
 - Nombre de services : ${services.length}
@@ -335,43 +355,36 @@ ${services.map((s) => `  * ${s.name} (${s.category}) : ${s.priceTnd} DT, ${s.dur
 Donne une analyse tarifaire percutante comprenant :
 1. Un résumé concis (2 phrases) évaluant la cohérence des prix par rapport au marché tunisien.
 2. 3 à 4 recommandations concrètes sous format JSON :
-   type: "opportunity" | "warning" | "tip"
-   title: titre court
-   description: explication avec chiffres concrets
+ type: "opportunity" | "warning" | "tip"
+ title: titre court
+ description: explication avec chiffres concrets
 
 Réponds STRICTEMENT avec du JSON valide :
 {
-  "summary": "...",
-  "recommendations": [ { "type": "...", "title": "...", "description": "..." } ]
+"summary": "...",
+"recommendations": [ { "type": "...", "title": "...", "description": "..." } ]
 }`;
 
-      const response = await client.messages.create({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 800,
-        messages: [{ role: "user", content: prompt }],
-      });
-
-      const firstBlock = response.content[0];
-      if (firstBlock && firstBlock.type === "text") {
-        const jsonMatch = firstBlock.text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          return {
-            summary: parsed.summary,
-            recommendations: parsed.recommendations,
-            stats: {
-              avgPrice,
-              totalServices: services.length,
-              totalPacks: packs.length,
-              categoriesCount,
-            },
-            source: "ai",
-          };
-        }
+    const text = await askModel(prompt, 800);
+    if (text) {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return {
+          summary: parsed.summary,
+          recommendations: parsed.recommendations,
+          stats: {
+            avgPrice,
+            totalServices: services.length,
+            totalPacks: packs.length,
+            categoriesCount,
+          },
+          source: "ai",
+        };
       }
-    } catch (err) {
-      console.warn("Échec analyse pricing IA Anthropic, bascule sur l'audit analytique :", err);
     }
+  } catch (err) {
+    console.warn("Échec analyse pricing IA, bascule sur l'audit analytique :", err);
   }
 
   // Audit analytique hors-ligne
