@@ -49,7 +49,7 @@ const MODULES = [
   { name: "Catalogue & packs", icon: SparkleIcon, status: "Actif", color: "from-[#9fd8cb] to-champagne" },
   { name: "Calendrier & réservations", icon: CalendarIcon, status: "Actif", color: "from-champagne to-gold" },
   { name: "Équipe", icon: UsersIcon, status: "Bientôt", color: "from-[#c9a0dc] to-blush" },
-  { name: "Matériel & stock", icon: BoxIcon, status: "Bientôt", color: "from-gold to-rose-gold" },
+  { name: "Matériel & stock", icon: BoxIcon, status: "Actif", color: "from-gold to-rose-gold", href: "/dashboard/stock" as string | undefined },
   { name: "Paiements & factures", icon: WalletIcon, status: "Actif", color: "from-blush to-[#c9a0dc]" },
 ];
 
@@ -249,17 +249,31 @@ async function Dashboard({ searchParams }: { searchParams: PageProps<"/dashboard
         {!isClient && <div className="lg:col-span-2">
           <h2 className="mb-4 font-display text-2xl text-white"><T>Modules de la plateforme</T></h2>
           <div className="stagger grid grid-cols-2 gap-3">
-            {MODULES.map(({ name, icon: Icon, status, color }, i) => (
-              <div key={name} className="glass group relative overflow-hidden rounded-3xl p-4 transition duration-300 hover:-translate-y-1">
-                <div className={`absolute -end-10 -top-10 h-28 w-28 rounded-full bg-gradient-to-br ${color} opacity-10 blur-2xl transition-opacity duration-500 group-hover:opacity-30`} />
-                <span className={`grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br ${color} text-plum-950`}><Icon width={18} height={18} /></span>
-                <p className="mt-3 text-[11px] text-white/40">{i === 0 ? <T>Socle</T> : <><T>Module</T> {i}</>}</p>
-                <p className="text-sm font-medium leading-snug text-white"><T>{name}</T></p>
-                <span className={`mt-2 inline-block rounded-full px-2 py-0.5 text-[11px] ${status === "Actif" ? "bg-emerald-400/15 text-emerald-300" : "bg-white/5 text-white/50"}`}>
-                  <T>{status}</T>
-                </span>
-              </div>
-            ))}
+            {MODULES.map(({ name, icon: Icon, status, color, href }, i) => {
+              // « Matériel & stock » est un point d'entrée pour le propriétaire et le gérant ; les autres cartes restent informatives.
+              const link = href && (user.role === "OWNER" || user.role === "MANAGER") ? href : null;
+              const className = "glass group relative overflow-hidden rounded-3xl p-4 transition duration-300 hover:-translate-y-1";
+              const card = (
+                <>
+                  <div className={`absolute -end-10 -top-10 h-28 w-28 rounded-full bg-gradient-to-br ${color} opacity-10 blur-2xl transition-opacity duration-500 group-hover:opacity-30`} />
+                  <span className={`grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br ${color} text-plum-950`}><Icon width={18} height={18} /></span>
+                  <p className="mt-3 text-[11px] text-white/40">{i === 0 ? <T>Socle</T> : <><T>Module</T> {i}</>}</p>
+                  <p className="text-sm font-medium leading-snug text-white"><T>{name}</T></p>
+                  <span className={`mt-2 inline-block rounded-full px-2 py-0.5 text-[11px] ${status === "Actif" ? "bg-emerald-400/15 text-emerald-300" : "bg-white/5 text-white/50"}`}>
+                    <T>{status}</T>
+                  </span>
+                </>
+              );
+              return link ? (
+                <Link key={name} href={link} className={className}>
+                  {card}
+                </Link>
+              ) : (
+                <div key={name} className={className}>
+                  {card}
+                </div>
+              );
+            })}
           </div>
         </div>}
       </section>

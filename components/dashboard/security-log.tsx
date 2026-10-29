@@ -51,6 +51,28 @@ const EVENTS: Record<AuthEventType, { label: string; tone: string }> = {
   STAFF_TIMEOFF_CREATED: { label: "Absence du personnel enregistrée", tone: "bg-emerald-400" },
   STAFF_TIMEOFF_UPDATED: { label: "Absence du personnel modifiée", tone: "bg-sky-400" },
   STAFF_TIMEOFF_DELETED: { label: "Absence du personnel supprimée", tone: "bg-red-400" },
+  // Module 5 : matériel et stock
+  STOCK_PRODUCT_CREATED: { label: "Produit de stock créé", tone: "bg-emerald-400" },
+  STOCK_PRODUCT_UPDATED: { label: "Produit de stock modifié", tone: "bg-sky-400" },
+  STOCK_PRODUCT_ARCHIVED: { label: "Produit de stock archivé", tone: "bg-red-400" },
+  STOCK_LEVEL_UPDATED: { label: "Niveau de stock activé ou seuil modifié", tone: "bg-sky-400" },
+  STOCK_MOVEMENT_RECORDED: { label: "Mouvement de stock enregistré", tone: "bg-champagne" },
+  STOCK_ORDER_RECEIVED: { label: "Commande d'achat reçue", tone: "bg-emerald-400" },
+  EQUIPMENT_CREATED: { label: "Équipement ajouté", tone: "bg-emerald-400" },
+  EQUIPMENT_UPDATED: { label: "Équipement modifié", tone: "bg-sky-400" },
+  EQUIPMENT_ARCHIVED: { label: "Équipement archivé", tone: "bg-red-400" },
+  MAINTENANCE_SCHEDULED: { label: "Maintenance programmée", tone: "bg-sky-400" },
+  MAINTENANCE_RECORDED: { label: "Intervention de maintenance enregistrée", tone: "bg-champagne" },
+  SUPPLIER_CREATED: { label: "Fournisseur ajouté", tone: "bg-emerald-400" },
+  SUPPLIER_UPDATED: { label: "Fournisseur modifié", tone: "bg-sky-400" },
+  SUPPLIER_ARCHIVED: { label: "Fournisseur archivé", tone: "bg-red-400" },
+  PURCHASE_ORDER_CREATED: { label: "Commande d'achat créée", tone: "bg-emerald-400" },
+  PURCHASE_ORDER_UPDATED: { label: "Commande d'achat modifiée", tone: "bg-sky-400" },
+  PURCHASE_ORDER_PLACED: { label: "Commande d'achat passée", tone: "bg-champagne" },
+  PURCHASE_ORDER_CANCELLED: { label: "Commande d'achat annulée", tone: "bg-red-400" },
+  STOCK_RECIPE_ADDED: { label: "Ligne de recette ajoutée", tone: "bg-emerald-400" },
+  STOCK_RECIPE_UPDATED: { label: "Ligne de recette modifiée", tone: "bg-sky-400" },
+  STOCK_RECIPE_REMOVED: { label: "Ligne de recette supprimée", tone: "bg-red-400" },
 };
 
 // Fuseau et langue explicites : même rendu côté serveur et navigateur.
