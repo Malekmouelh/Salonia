@@ -1,5 +1,18 @@
 "use client";
 
+// ═══════════════════════════════════════════════════════════════════════════
+// FICHIER : components/finance/expense-manager.tsx — LA GESTION DES DÉPENSES (F6.4)
+// ═══════════════════════════════════════════════════════════════════════════
+// Affiche la liste des dépenses (filtrable par catégorie), la répartition par catégorie, et gère le
+// formulaire d'AJOUT / MODIFICATION dans une fenêtre modale, ainsi que la SUPPRESSION.
+//
+// IDÉE CLÉ — le « brouillon » (`draft`) : une seule variable d'état représente le formulaire.
+//   • draft = null            → la fenêtre est fermée ;
+//   • draft sans `id`         → on CRÉE une nouvelle dépense ;
+//   • draft avec un `id`      → on MODIFIE la dépense existante.
+// Ainsi, le même formulaire sert pour la création et la modification.
+// ═══════════════════════════════════════════════════════════════════════════
+
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { deleteExpenseAction, saveExpenseAction, type FinanceResult } from "@/app/actions/finance";
@@ -15,6 +28,8 @@ import { BarList, Panel, selectClass } from "./finance-ui";
 
 // F6.4 — Suivi des dépenses (loyer, produits, salaires…) par centre.
 
+// Le brouillon du formulaire. Le montant est du TEXTE (`amountTnd: string`) pendant la saisie, car un
+// champ de formulaire contient toujours du texte ; il est converti en nombre à l'envoi.
 type Draft = { id?: string; centerId: string; category: ExpenseCategory; label: string; amountTnd: string; date: string; method: string; supplier: string };
 
 export function ExpenseManager({
@@ -31,13 +46,16 @@ export function ExpenseManager({
   const { t, lang } = useI18n();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(null); // formulaire ouvert ou non (voir l'en-tête du fichier)
   const [toast, setToast] = useState<FinanceResult | null>(null);
-  const [filter, setFilter] = useState<string>("");
+  const [filter, setFilter] = useState<string>(""); // filtre de catégorie (vide = toutes)
 
+  // Brouillon vierge pour « Nouvelle dépense » : aujourd'hui, espèces, catégorie « Produits » par défaut.
   const blank = (): Draft => ({ centerId: defaultCenter, category: "PRODUCTS", label: "", amountTnd: "", date: dayKey(new Date()), method: "CASH", supplier: "" });
+  // Dépenses affichées après filtre, et leur total.
   const visible = filter ? expenses.filter((e) => e.category === filter) : expenses;
   const total = visible.reduce((n, e) => n + e.amountTnd, 0);
+  // Répartition par catégorie (graphique en barres à droite) : on ne garde que les catégories non nulles, triées par montant.
   const byCategory = EXPENSE_CATEGORIES.map((c) => ({
     key: c,
     label: EXPENSE_LABELS[c],
@@ -46,6 +64,8 @@ export function ExpenseManager({
     .filter((r) => r.amount > 0)
     .sort((a, b) => b.amount - a.amount);
 
+  // Appelée avec la réponse de la Server Action : affiche la notification ; en cas de succès, ferme le
+  // formulaire et recharge les données.
   const done = (r: FinanceResult) => {
     setToast(r);
     if (r.ok) {
@@ -54,6 +74,7 @@ export function ExpenseManager({
     }
   };
 
+  // Les dépenses de type « Salaires » ne sont modifiables que par le propriétaire (règle aussi appliquée côté serveur).
   const editable = (e: ExpenseRowData) => e.category !== "SALARIES" || canEditSalaries;
 
   return (
@@ -71,6 +92,7 @@ export function ExpenseManager({
           <span className="text-xs text-white/45">
             {visible.length} {t("dépenses")} · {fmtMoney(total, lang)}
           </span>
+          {/* Ouvre le formulaire en mode création. */}
           <button type="button" onClick={() => setDraft(blank())} className="btn-shine ms-auto rounded-xl px-4 py-2 text-sm font-semibold text-plum-950">
             + {t("Nouvelle dépense")}
           </button>
@@ -91,11 +113,13 @@ export function ExpenseManager({
                   </p>
                 </div>
                 <span className="tabular-nums text-sm text-white">{fmtMoney(e.amountTnd, lang)}</span>
+                {/* Boutons Modifier / Supprimer : seulement si l'utilisateur a le droit sur cette dépense. */}
                 {editable(e) && (
                   <span className="flex gap-3 text-xs">
                     <button
                       type="button"
                       onClick={() =>
+                        // Mode MODIFICATION : le brouillon reprend les valeurs de la dépense, avec son `id`.
                         setDraft({ id: e.id, centerId: e.centerId, category: e.category, label: e.label, amountTnd: String(e.amountTnd), date: e.date, method: e.method, supplier: e.supplier ?? "" })
                       }
                       className="text-white/50 hover:text-white"
@@ -106,6 +130,7 @@ export function ExpenseManager({
                       type="button"
                       disabled={pending}
                       onClick={() => {
+                        // `confirm` : boîte de dialogue du navigateur pour éviter une suppression par erreur.
                         if (confirm(t("Supprimer cette dépense ?"))) startTransition(async () => done(await deleteExpenseAction(e.id)));
                       }}
                       className="text-white/50 hover:text-red-300"
@@ -120,16 +145,20 @@ export function ExpenseManager({
         )}
       </div>
 
+      {/* Graphique en barres : répartition des dépenses par catégorie. */}
       <Panel title="Répartition" subtitle="Dépenses de la période par catégorie" className="h-fit">
         <BarList rows={byCategory} empty="Aucune dépense sur la période." translateLabels />
       </Panel>
 
+      {/* Fenêtre modale du formulaire : affichée seulement si un brouillon existe. */}
       {draft && (
         <Modal open onClose={() => setDraft(null)} title={t(draft.id ? "Modifier la dépense" : "Nouvelle dépense")}>
           <form
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
+              // On envoie le brouillon à la Server Action ; le montant texte devient un nombre (`Number`),
+              // et `|| 0` donne 0 si la saisie n'est pas un nombre (le serveur le refusera alors).
               startTransition(async () => done(await saveExpenseAction({ ...draft, amountTnd: Number(draft.amountTnd) || 0, method: draft.method as never })));
             }}
           >
@@ -137,6 +166,7 @@ export function ExpenseManager({
               <div>
                 <label className={labelClass} htmlFor="exp-category">{t("Catégorie")}</label>
                 <select id="exp-category" value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value as ExpenseCategory })} className={`${selectClass} w-full`}>
+                  {/* La catégorie « Salaires » n'est proposée qu'au propriétaire. */}
                   {EXPENSE_CATEGORIES.filter((c) => c !== "SALARIES" || canEditSalaries).map((c) => (
                     <option key={c} value={c}>
                       {t(EXPENSE_LABELS[c])}
@@ -144,6 +174,7 @@ export function ExpenseManager({
                   ))}
                 </select>
               </div>
+              {/* Choix du centre : seulement s'il y en a plusieurs. */}
               {centers.length > 1 ? (
                 <div>
                   <label className={labelClass} htmlFor="exp-center">{t("Centre")}</label>
@@ -166,6 +197,7 @@ export function ExpenseManager({
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label className={labelClass} htmlFor="exp-amount">{t("Montant (DT)")}</label>
+                {/* `.replace(",", ".")` : accepte la virgule décimale française (12,5 → 12.5). */}
                 <input id="exp-amount" required inputMode="decimal" value={draft.amountTnd} onChange={(e) => setDraft({ ...draft, amountTnd: e.target.value.replace(",", ".") })} className={inputClass} />
               </div>
               <div>

@@ -81,6 +81,10 @@ const EVENTS: Record<AuthEventType, { label: string; tone: string }> = {
   STOCK_RECIPE_REMOVED: { label: "Ligne de recette supprimée", tone: "bg-red-400" },
   STOCK_TRANSFERRED: { label: "Produit transféré entre centres", tone: "bg-champagne" },
   EQUIPMENT_TRANSFERRED: { label: "Matériel transféré entre centres", tone: "bg-champagne" },
+  PAYMENT_LINK_CANCELLED: { label: "Lien de paiement annulé", tone: "bg-amber-400" },
+  CASH_CLOSED: { label: "Caisse clôturée", tone: "bg-emerald-400" },
+  CASH_REOPENED: { label: "Caisse rouverte", tone: "bg-amber-400" },
+  FINANCE_SETTINGS_UPDATED: { label: "Paramètres financiers modifiés", tone: "bg-sky-400" },
 };
 
 // Fuseau et langue explicites : même rendu côté serveur et navigateur.

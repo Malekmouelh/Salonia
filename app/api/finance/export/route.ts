@@ -1,3 +1,20 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// FICHIER : app/api/finance/export/route.ts — L'EXPORT DES DONNÉES (F6.6)
+// ═══════════════════════════════════════════════════════════════════════════
+// QU'EST-CE QU'UNE « ROUTE API » ? (« Route Handler » de Next.js)
+//   Un fichier `route.ts` définit une adresse web qui répond avec des DONNÉES (un fichier, du JSON…)
+//   et non avec une page. Ici, l'adresse est /api/finance/export. La fonction `GET` est appelée
+//   quand le navigateur ouvre cette adresse (clic sur « Exporter »).
+//
+// EXEMPLES D'APPELS (paramètres dans l'adresse, après « ? ») :
+//   /api/finance/export?type=payments&format=csv&period=month&center=all
+//   /api/finance/export?type=report&format=pdf&period=last-month
+//   type   = payments | invoices | expenses | report
+//   format = csv (fichier Excel) | pdf (seulement pour le rapport)
+//
+// SÉCURITÉ : réservé au propriétaire et au gérant ; les données sont limitées à leurs centres.
+//   Chaque export est inscrit au journal de sécurité (traçabilité : qui a exporté quoi, quand).
+// ═══════════════════════════════════════════════════════════════════════════
 import { NextResponse, type NextRequest } from "next/server";
 import { logEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/dal";
@@ -11,35 +28,54 @@ import { canViewFinance } from "@/lib/finance/service";
 // F6.6 — Export des données : CSV (ouvrable dans Excel) ou rapport PDF.
 // /api/finance/export?type=payments|invoices|expenses|report&format=csv|pdf&period=month&center=all
 
+// Date et heure au format français (JJ/MM/AAAA HH:MM), en heure de Tunis.
 const dateFmt = (d: Date | string) =>
   new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "Africa/Tunis" }).format(new Date(d));
 
+// ───────────── Fabrication d'un fichier CSV ─────────────
+// CSV = « Comma-Separated Values » : un fichier texte où chaque ligne est un enregistrement et les
+// colonnes sont séparées par un caractère. Excel l'ouvre directement.
 // Séparateur « ; » et virgule décimale : format attendu par Excel en français.
+// (Excel en français utilise « ; » comme séparateur et « , » pour les décimales : 12,500.)
 const num = (v: number) => plainTnd(v).replace(".", ",");
+// Protège une cellule : si elle contient un guillemet, un « ; » ou un retour à la ligne, on l'entoure de
+// guillemets et on double les guillemets internes (règle standard du CSV). Sans ça, un client nommé
+// « Dupont; Jean » décalerait toutes les colonnes.
 const cell = (v: string | number) => {
   const s = String(v);
   return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
+// Assemble le fichier : en-têtes + lignes, colonnes séparées par « ; », lignes par retour chariot.
+// Le caractère ﻿ au début est le « BOM » (marque d'ordre des octets) : il indique à Excel que le
+// fichier est en UTF-8, sans quoi les accents (é, è…) s'afficheraient mal.
 const csv = (headers: string[], rows: (string | number)[][]) =>
   "﻿" + [headers, ...rows].map((r) => r.map(cell).join(";")).join("\r\n");
 
+// Fonction appelée pour une requête HTTP GET (ouverture de l'adresse).
 export async function GET(req: NextRequest) {
+  // 1. Qui demande ? Seuls propriétaire et gérant ont le droit. Sinon : erreur HTTP 403 (« Interdit »).
   const user = await getCurrentUser();
   if (!canViewFinance(user) || !user.organization) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  // 2. Lecture des paramètres de l'adresse (?type=…&format=…).
   const sp = req.nextUrl.searchParams;
   const type = sp.get("type") ?? "report";
   const format = sp.get("format") === "pdf" ? "pdf" : "csv";
   const center = sp.get("center");
+  // Périmètre : tous les centres autorisés, ou un seul s'il est demandé ET autorisé.
   const scope = financeScope(user, center);
   if (!scope) return NextResponse.json({ error: "Aucun centre accessible" }, { status: 403 });
   const range = resolveRange(sp.get("period"), sp.get("from"), sp.get("to"));
+  // Suffixe du nom de fichier : « 2026-10-01_2026-10-18 ».
   const stamp = `${range.from.toISOString().slice(0, 10)}_${range.to.toISOString().slice(0, 10)}`;
   const centerId = center && center !== "all" ? center : undefined;
 
+  // Contenu du fichier : du texte (CSV) ou des octets (PDF). Nom proposé au téléchargement.
   let body: string | Uint8Array;
   let filename: string;
 
+  // 3. Selon le type demandé, on fabrique le bon fichier.
   if (type === "payments") {
+    // Liste des paiements de la période (1 ligne par paiement).
     const rows = await listPayments(user, { centerIds: scope.centerIds, from: range.from, to: range.to });
     body = csv(
       ["Date", "Reçu", "Facture", "Centre", "Client", "Type", "Moyen", "Montant (DT)", "Référence"],
@@ -47,6 +83,7 @@ export async function GET(req: NextRequest) {
     );
     filename = `paiements_${stamp}.csv`;
   } else if (type === "invoices") {
+    // Liste des factures (jusqu'à 5000 lignes).
     const rows = await listInvoices(user, { centerId, from: range.from, to: range.to, limit: 5000 });
     body = csv(
       ["Numéro", "Date", "Centre", "Client", "Prestations", "Remise (DT)", "Total TTC (DT)", "Réglé (DT)", "Statut"],
@@ -54,6 +91,7 @@ export async function GET(req: NextRequest) {
     );
     filename = `factures_${stamp}.csv`;
   } else if (type === "expenses") {
+    // Liste des dépenses.
     const rows = await listExpenses(user, { centerId, from: range.from, to: range.to });
     body = csv(
       ["Date", "Centre", "Catégorie", "Libellé", "Fournisseur", "Moyen", "Montant (DT)"],
@@ -61,6 +99,7 @@ export async function GET(req: NextRequest) {
     );
     filename = `depenses_${stamp}.csv`;
   } else {
+    // « report » : synthèse. On calcule les 4 jeux de données EN PARALLÈLE avec Promise.all.
     const [summary, centers, services, expenses] = await Promise.all([
       getSummary(scope, range),
       compareCenters(scope, range),
@@ -68,6 +107,7 @@ export async function GET(req: NextRequest) {
       getBreakdown(scope, range, "category", 10),
     ]);
     if (format === "pdf") {
+      // Rapport PDF complet (voir lib/finance/pdf.ts).
       body = await reportPdf({
         organization: { name: user.organization.name },
         scopeLabel: scope.centers.length > 1 ? "Vue consolidée" : scope.centers[0].name,
@@ -81,6 +121,7 @@ export async function GET(req: NextRequest) {
       });
       filename = `rapport_financier_${stamp}.pdf`;
     } else {
+      // Synthèse CSV : une ligne par centre + une ligne « Total ».
       body = csv(
         ["Centre", "CA encaissé (DT)", "Dépenses (DT)", "Résultat (DT)", "Marge", "Ventes", "Panier moyen (DT)"],
         [
@@ -92,11 +133,16 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // 4. Traçabilité : l'export est inscrit au journal de sécurité.
   await logEvent("FINANCE_EXPORTED", { userId: user.id, organizationId: user.organization.id, detail: `${type}.${format} ${stamp}` });
+  // 5. Réponse HTTP : le contenu + des en-têtes qui disent au navigateur quoi en faire.
   return new NextResponse(typeof body === "string" ? body : Buffer.from(body), {
     headers: {
+      // Type du contenu (CSV en UTF-8 ou PDF).
       "Content-Type": typeof body === "string" ? "text/csv; charset=utf-8" : "application/pdf",
+      // « attachment » = télécharger plutôt qu'afficher, sous le nom indiqué.
       "Content-Disposition": `attachment; filename="${filename}"`,
+      // Données confidentielles : interdit aux caches (navigateur, proxy) de les conserver.
       "Cache-Control": "private, no-store",
     },
   });

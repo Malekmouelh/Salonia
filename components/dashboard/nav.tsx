@@ -18,6 +18,7 @@ const LINKS = [
   { href: "/dashboard/finances", label: "Finances", icon: WalletIcon, roles: ["OWNER", "MANAGER"] },
   { href: "/dashboard/stock", label: "Matériel & stock", icon: BoxIcon, roles: ["OWNER", "MANAGER"] },
   { href: "/dashboard/finances/caisse", label: "Caisse", icon: WalletIcon, roles: ["STAFF"] },
+  { href: "/dashboard/mes-paiements", label: "Mes paiements", icon: WalletIcon, roles: ["CLIENT"] },
   { href: "/dashboard/assistant", label: "Assistant IA", icon: WandIcon, roles: ["OWNER"] },
   { href: "/dashboard/salons", label: "Trouver un salon", icon: StoreIcon, roles: ["CLIENT"] },
 ] as const;
