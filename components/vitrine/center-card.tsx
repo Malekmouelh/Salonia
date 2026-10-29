@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { ArrowRightIcon, ClockIcon, PinIcon, SparkleIcon, UsersIcon } from "@/components/ui/icons";
@@ -29,7 +29,15 @@ export function CenterCard({
   const bookingUrl = `/reserver/${salonSlug}?centerId=${center.id}`;
 
   // Horaires synthétiques
-  const todayKey = new Intl.DateTimeFormat("fr-FR", { weekday: "long" }).format(new Date()).toLowerCase();
+  const [todayKey, setTodayKey] = useState<string>("lundi");
+  useEffect(() => {
+    try {
+      const day = new Intl.DateTimeFormat("fr-FR", { weekday: "long" }).format(new Date()).toLowerCase();
+      setTodayKey(day);
+    } catch {
+      // fallback lundi
+    }
+  }, []);
   const todayHours = center.openingHours[todayKey] || center.openingHours["lundi"] || "09:00 - 19:00";
 
   return (
