@@ -106,6 +106,73 @@ export async function commitReceipt(input: ReceiptCommit): Promise<{ movement: {
   throw new StockError(MSG_LEDGER_BUSY);
 }
 
+export type TransferOutCommit = LedgerKey & { transferId: string; requested: number; createdBy?: string };
+export type TransferMovement = { seq: number; balanceAfter: number; delta: number };
+
+// Sortie d'un transfert au centre source : UN mouvement TRANSFER_OUT par (transfert, produit), jamais deux. La quantité est PLAFONNÉE au
+// solde lu en fin de journal (jamais de stock négatif). Idempotent : si le mouvement existe déjà (nouvel envoi, appel simultané, reprise),
+// il est renvoyé tel quel (created: false) et rien n'est retiré une seconde fois. movement: null = rien n'a pu être prélevé (solde nul),
+// aucun mouvement vide n'est créé. Étapes 1 à 3 de D6 seulement : ne projette pas (voir projectLevel).
+export async function commitTransferOut(input: TransferOutCommit): Promise<{ movement: TransferMovement | null; created: boolean }> {
+  const key: LedgerKey = { organizationId: input.organizationId, productId: input.productId, centerId: input.centerId };
+  const transferFilter = { ...key, kind: "TRANSFER_OUT" as const, transferId: input.transferId };
+  for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
+    const existing = await StockMovement.findOne(transferFilter).select("seq balanceAfter delta").lean();
+    if (existing) return { movement: { seq: existing.seq, balanceAfter: existing.balanceAfter, delta: existing.delta }, created: false };
+    const tail = await readTail(key);
+    const applied = Math.min(input.requested, tail.balanceAfter);
+    if (applied <= 0) return { movement: null, created: false };
+    try {
+      const saved = await new StockMovement({
+        ...key,
+        kind: "TRANSFER_OUT",
+        seq: tail.seq + 1,
+        delta: -applied,
+        balanceAfter: tail.balanceAfter - applied,
+        transferId: input.transferId,
+        createdBy: input.createdBy,
+      }).save();
+      return { movement: { seq: saved.seq, balanceAfter: saved.balanceAfter, delta: saved.delta }, created: true };
+    } catch (error) {
+      if (isDuplicateKey(error, "transferId")) continue; // un autre appel a enregistré cette sortie : on la relit au tour suivant
+      if (!isDuplicateKey(error, "seq")) throw error;
+      await pause(attempt); // un autre écrivain a pris ce rang : on relit la fin du journal et on recalcule
+    }
+  }
+  throw new StockError(MSG_LEDGER_BUSY);
+}
+
+export type TransferInCommit = LedgerKey & { transferId: string; quantity: number; createdBy?: string };
+
+// Entrée d'un transfert au centre destination : UN mouvement TRANSFER_IN par (transfert, produit), de la quantité réellement sortie.
+// Même idempotence que commitTransferOut. Ne projette pas.
+export async function commitTransferIn(input: TransferInCommit): Promise<{ movement: TransferMovement; created: boolean }> {
+  const key: LedgerKey = { organizationId: input.organizationId, productId: input.productId, centerId: input.centerId };
+  const transferFilter = { ...key, kind: "TRANSFER_IN" as const, transferId: input.transferId };
+  for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
+    const existing = await StockMovement.findOne(transferFilter).select("seq balanceAfter delta").lean();
+    if (existing) return { movement: { seq: existing.seq, balanceAfter: existing.balanceAfter, delta: existing.delta }, created: false };
+    const tail = await readTail(key);
+    try {
+      const saved = await new StockMovement({
+        ...key,
+        kind: "TRANSFER_IN",
+        seq: tail.seq + 1,
+        delta: input.quantity,
+        balanceAfter: tail.balanceAfter + input.quantity,
+        transferId: input.transferId,
+        createdBy: input.createdBy,
+      }).save();
+      return { movement: { seq: saved.seq, balanceAfter: saved.balanceAfter, delta: saved.delta }, created: true };
+    } catch (error) {
+      if (isDuplicateKey(error, "transferId")) continue;
+      if (!isDuplicateKey(error, "seq")) throw error;
+      await pause(attempt);
+    }
+  }
+  throw new StockError(MSG_LEDGER_BUSY);
+}
+
 // Stock initial : mouvement OPENING inséré au rang FIXE 1. Une relance (ou une activation simultanée) tombe sur la clé
 // dupliquée du rang 1 et n'ajoute jamais une seconde fois le stock initial. Projette le mouvement de rang 1 existant,
 // ce qui répare une activation interrompue entre l'insertion et la projection.
@@ -151,7 +218,9 @@ export type LedgerIssueCode =
   | "CONSUMPTION_MISMATCH"
   | "DUPLICATE_BOOKING"
   | "RECEIPT_INVALID"
-  | "DUPLICATE_ORDER";
+  | "DUPLICATE_ORDER"
+  | "TRANSFER_INVALID"
+  | "DUPLICATE_TRANSFER";
 export type LedgerIssue = { code: LedgerIssueCode; seq: number; message: string };
 // LAGGING = projection en retard (état normal après une interruption) ; AHEAD/MISMATCH = projection incohérente avec un journal sain.
 export type ProjectionState = "NO_LEVEL" | "IN_SYNC" | "LAGGING" | "AHEAD" | "MISMATCH";
@@ -166,7 +235,8 @@ export type LedgerReport = {
 
 // Contrôle en lecture seule. Invariants : rangs 1..n contigus (I1) ; solde = solde précédent + delta et jamais négatif (I2) ;
 // OPENING seulement au rang 1 ; consommation : demandé = consommé + manquant (I4) ; une consommation par rendez-vous et produit (I5) ;
-// réception : positive, liée à une commande, une seule par commande et produit.
+// réception : positive, liée à une commande, une seule par commande et produit ; transfert : sens cohérent, lié à un transfert, un seul
+// mouvement de chaque sens par transfert.
 // État de la projection (I3) : comparée à la fin du journal.
 export async function verifyLedger(key: LedgerKey): Promise<LedgerReport> {
   const issues: LedgerIssue[] = [];
@@ -176,6 +246,7 @@ export async function verifyLedger(key: LedgerKey): Promise<LedgerReport> {
   const tail = { seq: 0, balanceAfter: 0 };
   const bookings = new Set<string>();
   const orders = new Set<string>();
+  const transfers = new Set<string>();
 
   for await (const m of StockMovement.find(key).sort({ seq: 1 }).lean().cursor()) {
     count++;
@@ -198,6 +269,13 @@ export async function verifyLedger(key: LedgerKey): Promise<LedgerReport> {
       if (!order || m.delta <= 0) issues.push({ code: "RECEIPT_INVALID", seq: m.seq, message: "Réception sans commande liée ou non positive." });
       if (order && orders.has(order)) issues.push({ code: "DUPLICATE_ORDER", seq: m.seq, message: "Deux réceptions pour une même commande et un même produit." });
       orders.add(order);
+    }
+    if (m.kind === "TRANSFER_OUT" || m.kind === "TRANSFER_IN") {
+      const transfer = String(m.transferId ?? "");
+      if (!transfer || (m.kind === "TRANSFER_OUT" ? m.delta >= 0 : m.delta <= 0)) issues.push({ code: "TRANSFER_INVALID", seq: m.seq, message: "Transfert sans identifiant ou de sens incohérent." });
+      const transferKey = `${m.kind}:${transfer}`;
+      if (transfer && transfers.has(transferKey)) issues.push({ code: "DUPLICATE_TRANSFER", seq: m.seq, message: "Deux mouvements de même sens pour un même transfert." });
+      transfers.add(transferKey);
     }
     expectedSeq = m.seq + 1;
     previousBalance = m.balanceAfter;

@@ -73,6 +73,8 @@ const EVENTS: Record<AuthEventType, { label: string; tone: string }> = {
   STOCK_RECIPE_ADDED: { label: "Ligne de recette ajoutée", tone: "bg-emerald-400" },
   STOCK_RECIPE_UPDATED: { label: "Ligne de recette modifiée", tone: "bg-sky-400" },
   STOCK_RECIPE_REMOVED: { label: "Ligne de recette supprimée", tone: "bg-red-400" },
+  STOCK_TRANSFERRED: { label: "Produit transféré entre centres", tone: "bg-champagne" },
+  EQUIPMENT_TRANSFERRED: { label: "Matériel transféré entre centres", tone: "bg-champagne" },
 };
 
 // Fuseau et langue explicites : même rendu côté serveur et navigateur.

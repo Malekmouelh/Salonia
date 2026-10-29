@@ -1,6 +1,6 @@
 # Module 5 — Matériel et stock : schéma de données (document de relecture)
 
-Statut : **IMPLÉMENTÉ** (octobre 2026) : modèles, services, actions serveur, interface (`/dashboard/stock/*`) et bac à sable de vérification existent ; ce document décrit l'état réel du code. À relire par le Membre 4 (cahier des charges : « le schéma de données du Module 5 est relu par le Membre 4 »). Ce qui reste à faire est listé au §9 (consommation automatique des rendez-vous, rattrapage, transferts, IA).
+Statut : **IMPLÉMENTÉ** (octobre 2026) : modèles, services, actions serveur, interface (`/dashboard/stock/*`) et bac à sable de vérification existent ; ce document décrit l'état réel du code. À relire par le Membre 4 (cahier des charges : « le schéma de données du Module 5 est relu par le Membre 4 »). Ce qui reste à faire est listé au §9 (consommation automatique des rendez-vous, rattrapage, IA). Les **transferts entre centres (F5.6)** sont implémentés (§6.1).
 
 ## 0. Décisions de cadrage intégrées
 
@@ -17,6 +17,7 @@ Statut : **IMPLÉMENTÉ** (octobre 2026) : modèles, services, actions serveur, 
 | D9 | Rattrapage : seuls les RDV `COMPLETED` dont la fin est postérieure à la création de la recette applicable sont éligibles. Aucun rattrapage pour `NO_SHOW`, annulés ou non terminés. Pas de limite en jours. Toute consommation reste idempotente (§5.6). |
 | D10 | Détection et réparation contrôlée de la projection à l'ouverture de la page (sans nouveau mouvement, sans blocage inutile de l'affichage, sans réparations concurrentes sur un même niveau) et lors des écritures. Pas de cron (§5.6 bis). |
 | D11 | Un MANAGER peut activer un produit existant dans un centre autorisé : création du niveau, seuil et stock initial. Le stock initial est tracé par un mouvement d'entrée initial. L'unité vient de la définition globale et n'est pas modifiable par le MANAGER (§5.5). |
+| D12 | **Transferts entre centres (F5.6) : produits ET matériel.** Produit : quantité **plafonnée** au stock disponible à la source (jamais de stock négatif ; disponible 0 = rien n'est créé, message clair). Matériel : même `_id`, historique de maintenance conservé. Source et destination = deux centres différents de la même organisation. OWNER : source et destination libres. MANAGER : source = ses centres seulement, destination = tout centre de l'organisation. Autres rôles : aucun accès (§6.1, §7). |
 | Q2/Q3 | Ne jamais bloquer la clôture d'un RDV ; jamais de stock négatif ; manquant enregistré à part ; `NO_SHOW` ne consomme rien ; pas de restitution automatique au retour `COMPLETED → CONFIRMED` (correction par mouvement explicite) ; aucune double consommation. Intégration aux Modules 3 et 6 : étape dédiée, **pas avant validation du schéma et des tests**. |
 
 ## 1. Exigences couvertes
@@ -28,7 +29,7 @@ Statut : **IMPLÉMENTÉ** (octobre 2026) : modèles, services, actions serveur, 
 | F5.3 | Entrées et sorties liées aux prestations | I (requis par la recette) | `StockMovement`, `ServiceRecipe` |
 | F5.4 | Maintenance : dates, historique, rappels | I | `MaintenanceRecord` (+ `Equipment.nextMaintenanceAt`) |
 | F5.5 | Fournisseurs et bons de commande | I | `Supplier`, `PurchaseOrder` |
-| F5.6 | Transferts entre centres | O | nouveaux types de mouvement (aucune collection de stock en plus) |
+| F5.6 | Transferts entre centres | O | `StockTransfer` (nouvelle collection), mouvements `TRANSFER_OUT` / `TRANSFER_IN` dans `StockMovement`, `Equipment.centerId` (§6.1) |
 
 Sections 2 à 5 : étapes 1 à 9. Section 6 : esquisse des étapes ultérieures, **pas à coder maintenant**.
 
@@ -36,7 +37,7 @@ Sections 2 à 5 : étapes 1 à 9. Section 6 : esquisse des étapes ultérieures,
 
 - Helper `model()` comme `lib/models/*` ; fichier prévu `lib/models/stock.ts`.
 - Constantes dans `lib/enums.ts` au format `NOM_PLURIEL` en majuscules, valeurs en anglais MAJUSCULES (comme `BOOKING_STATUSES`, `PAYMENT_KINDS`) ; libellés français dans `lib/stock/labels.ts` (comme `lib/finance/labels.ts`), arabe dans `lib/i18n-ar.ts`.
-  `EQUIPMENT_STATUSES = ["IN_SERVICE", "IN_MAINTENANCE", "OUT_OF_SERVICE"]` · `STOCK_UNITS = ["PIECE", "ML", "G"]` · `STOCK_MOVEMENT_KINDS = ["OPENING", "IN", "OUT", "ADJUSTMENT", "CONSUMPTION", "RECEIPT"]` (`TRANSFER_IN` / `TRANSFER_OUT` : F5.6, non fait) · `PURCHASE_ORDER_STATUSES = ["DRAFT", "ORDERED", "RECEIVED", "CANCELLED"]`.
+  `EQUIPMENT_STATUSES = ["IN_SERVICE", "IN_MAINTENANCE", "OUT_OF_SERVICE"]` · `STOCK_UNITS = ["PIECE", "ML", "G"]` · `STOCK_MOVEMENT_KINDS = ["OPENING", "IN", "OUT", "ADJUSTMENT", "CONSUMPTION", "RECEIPT", "TRANSFER_OUT", "TRANSFER_IN"]` · `STOCK_TRANSFER_KINDS = ["PRODUCT", "EQUIPMENT"]` · `STOCK_TRANSFER_STATUSES = ["PENDING", "COMPLETED", "CANCELLED"]` · `PURCHASE_ORDER_STATUSES = ["DRAFT", "ORDERED", "RECEIVED", "CANCELLED"]`.
 - Champ d'état nommé `status` (comme `Booking`, `Invoice`), champ de nature nommé `kind` (comme `Payment`, `StaffTimeOff`), archivage `active: Boolean` (comme `Service`, `Pack`).
 - `organizationId` obligatoire et présent dans **chaque** requête ; `centerId` sur toute donnée de centre. Aucun identifiant, rôle ou organisation lu depuis le client.
 
@@ -93,7 +94,8 @@ Index : **unique** `{serviceId, productId}` ; `{organizationId, serviceId}`. `ti
 | Champ | Type | Règle |
 |---|---|---|
 | `organizationId`, `centerId`, `productId` | ObjectId | obligatoires |
-| `kind` | enum `STOCK_MOVEMENT_KINDS` | `OPENING` (stock initial, rang 1), `IN`, `OUT`, `ADJUSTMENT`, `CONSUMPTION` (modèle et validation prêts, **aucun code ne la crée encore**), `RECEIPT` (réception d'une commande d'achat) |
+| `kind` | enum `STOCK_MOVEMENT_KINDS` | `OPENING` (stock initial, rang 1), `IN`, `OUT`, `ADJUSTMENT`, `CONSUMPTION` (modèle et validation prêts, **aucun code ne la crée encore**), `RECEIPT` (réception d'une commande d'achat), `TRANSFER_OUT` (sortie au centre source, `delta < 0`) et `TRANSFER_IN` (entrée au centre destination, `delta > 0`) : F5.6 |
+| `transferId` | ObjectId → StockTransfer | `TRANSFER_OUT` et `TRANSFER_IN` seulement (obligatoire pour ces deux types, interdit pour les autres) ; immuable. Index unique partiel `{transferId, productId, kind}` (filtre `transferId` existant) : un seul `TRANSFER_OUT` et un seul `TRANSFER_IN` par transfert et par produit. Les mouvements existants n'ont pas ce champ : aucune migration |
 | `purchaseOrderId` | ObjectId → PurchaseOrder | `RECEIPT` seulement (obligatoire pour ce type, interdit pour les autres) ; immuable. Index unique partiel `{purchaseOrderId, productId}` pour `kind = RECEIPT` : une seule réception par commande et produit |
 | `seq` | Number entier ≥ 1 | rang du mouvement dans le journal de (produit, centre) |
 | `delta` | Number entier | variation **réellement appliquée** (négative pour une sortie) |
@@ -255,13 +257,35 @@ Le passage aux transactions suppose alors un jeu de réplicas pour les tests et 
 - **`Supplier`** (F5.5, implémenté) : `organizationId`, `name` (unique parmi les actifs, insensible à la casse), `phone` (8 chiffres tunisiens, normalisé), `email` (minuscules), `leadTimeDays` (0 à 365), `active`. Écriture : OWNER ; lecture : OWNER et MANAGER. `StockProduct.supplierId` n'existe pas (non nécessaire à ce stade).
 - **`PurchaseOrder`** (F5.5, implémenté) : `organizationId`, `centerId`, `supplierId`, `supplierName` (copie), `status`, `lines[{productId, productName, unit, quantity}]` (1 à 50 lignes, un produit une seule fois, nom et unité recopiés depuis la base), `orderedAt`, `cancelledAt`, `receiptStartedAt`, `receivedAt`, `createdBy`. Transitions : `DRAFT → ORDERED | CANCELLED`, `ORDERED → CANCELLED | RECEIVED` (la réception passe uniquement par `receivePurchaseOrder`). Créer, modifier, passer ou annuler une commande ne modifie jamais le stock. **Réception** : un mouvement `RECEIPT` par ligne via `commitReceipt` (idempotent), projection, vérification que chaque niveau a projeté, puis `RECEIVED` ; `receiptStartedAt` est posé atomiquement au début et interdit alors l'annulation, ce qui rend la reprise sûre.
 - **`ServiceRecipe`** (F5.3, implémenté, configuration seule) : voir §3.4 ; gérée par OWNER (écriture et lecture) ; ne crée ni ne modifie aucun mouvement.
-- **F5.6** (transferts entre centres) : **non fait**. Prévu : `TRANSFER_OUT` puis `TRANSFER_IN` reliés par un identifiant de transfert (clé d'idempotence par transfert et sens).
+- **`StockTransfer`** (F5.6, implémenté) : voir §6.1.
 - **IA** : **non faite**. Elle lirait les mouvements `CONSUMPTION`, les niveaux et `leadTimeDays` ; toute commande suggérée resterait un brouillon validé par l'utilisateur.
+
+### 6.1 F5.6 — Transferts de produits et de matériel entre centres (implémenté)
+
+**Modèle `StockTransfer`** (`lib/models/stock.ts`) : `organizationId`, `requestId` (identifiant d'envoi généré par le client, 16 à 64 caractères, **unique par organisation** : rend l'envoi idempotent), `kind` (`PRODUCT` | `EQUIPMENT`), `fromCenterId`, `toCenterId` (différents), `productId` + `requestedQuantity` (produit) ou `equipmentId` (matériel), `transferredQuantity` (`null` tant que le transfert n'est pas terminé ; peut être inférieure à la quantité demandée), `status` (`PENDING` → `COMPLETED`, ou `CANCELLED` sans effet), `createdBy`, `completedAt`, `cancelledAt`. Tous les champs d'identité sont immuables. Index : unique `{organizationId, requestId}` ; unique partiel `{equipmentId}` pour `kind = EQUIPMENT` et `status = PENDING` (un seul transfert en cours par équipement) ; `{organizationId, fromCenterId, createdAt}` et `{organizationId, toCenterId, createdAt}`.
+
+**Produit — même mécanisme que la réception d'une commande (D6, sans transaction), chaque étape idempotente** (`lib/stock/transfers.ts`, `commitTransferOut` / `commitTransferIn` dans `lib/stock/ledger.ts`) :
+1. contrôles (droits, centres, produit actif de l'organisation, niveau activé à la source, disponible lu dans le **journal** > 0), puis enregistrement du transfert (`PENDING`) ;
+2. `TRANSFER_OUT` au centre source, **plafonné** à `min(demandé, solde)` lu en fin de journal (rang unique, relances bornées) ; solde nul = aucun mouvement, le transfert est abandonné (`CANCELLED`) ;
+3. `TRANSFER_IN` au centre destination de la quantité **réellement sortie** (le niveau de destination est créé avec un seuil 0 s'il n'existe pas ; un niveau existant garde son seuil) ;
+4. projection des deux niveaux (`projectLevel`, affectation gardée par le rang, échec non bloquant : le journal reste la vérité) puis passage à `COMPLETED` avec la quantité transférée.
+- **Idempotence** : un nouvel envoi de la même demande (même `requestId`, mêmes paramètres) retrouve le transfert et le termine s'il est incomplet ; mêmes `requestId` avec d'autres paramètres : refus. L'index unique `{transferId, productId, kind}` interdit une seconde sortie ou entrée même sans la relecture préalable.
+- **Reprise** : une interruption entre deux étapes laisse un transfert `PENDING`. `resumeTransfer` (action « Reprendre » dans l'historique) ou un nouvel envoi de la même demande termine les étapes manquantes sans double sortie ni double entrée. Un produit archivé depuis **ne bloque pas** la reprise (le stock déjà sorti doit arriver). La reprise exige que la **source** du transfert soit dans le périmètre de l'acteur.
+- Invariant : la somme du stock d'un produit dans tous les centres est inchangée par un transfert terminé ; entre la sortie et l'entrée, la quantité « en vol » est portée par un transfert `PENDING` (visible dans l'historique).
+
+**Matériel** : le document de transfert est créé d'abord (un seul transfert en cours par équipement), puis `Equipment.centerId` est changé par une mise à jour **conditionnelle** sur le centre source attendu (`{_id, organizationId, centerId: source, active: true}`), puis le transfert passe à `COMPLETED`. Si l'équipement a changé de centre ou été archivé entre-temps, le transfert est `CANCELLED` et rien n'est écrasé. L'équipement garde son `_id` ; les interventions passées gardent leur `centerId` d'origine (immuable) et restent dans son historique ; les suivantes portent le nouveau centre. Un équipement archivé ou déjà en transfert ne peut pas être transféré. Le centre source est **toujours** celui de l'équipement (jamais lu dans la saisie).
+
+**Droits** (`lib/stock/scope.ts` : `requireTransferCenters`, `transferDestinations`) : OWNER source et destination libres ; MANAGER source = `stockCenters` (ses centres), destination = tout centre de l'organisation ; STAFF, CLIENT, SUPER_ADMIN et utilisateurs sans organisation : refusés. Un centre source ou destination inconnu, d'une autre organisation ou (source) hors périmètre reçoit « Centre introuvable. ». Même centre : « Les centres source et destination doivent être différents. ».
+
+**Historique** : `listTransfers` (pagination par curseur sur l'identifiant du transfert), transferts dont la source **ou** la destination est dans les centres de l'acteur.
+
+**Décisions prises à l'implémentation** (à valider) : (a) `requestId` obligatoire (généré par l'interface à chaque modification du formulaire) ; (b) un transfert de produit vers un centre sans niveau **crée ce niveau** (seuil 0) à destination, y compris pour un gérant (sinon il ne pourrait jamais envoyer vers un centre qu'il ne gère pas) ; (c) nouvelle collection `StockTransfer`, alors que la première version de ce document prévoyait seulement de nouveaux types de mouvement ; (d) un transfert dont le disponible tombe à 0 entre le contrôle et la sortie est abandonné (`CANCELLED`).
 
 ## 7. Isolation et droits (D7)
 
 | Action | OWNER | MANAGER | STAFF / CLIENT |
 |---|---|---|---|
+| Transfert de produit ou de matériel (F5.6) | source : tous les centres ; destination : tous | source : **ses centres** ; destination : **tout centre de l'organisation** | non |
 | Définitions de produits (`StockProduct`) et recettes (`ServiceRecipe`) : créer, modifier, archiver | oui | **non** | non |
 | Matériel (`Equipment`) | tous les centres | ses centres | non |
 | Niveaux (`StockLevel`) : activer un produit existant et actif dans un centre (seuil + stock initial tracé par un mouvement `IN`), modifier le seuil. L'unité reste celle de la définition globale | tous les centres | ses centres | non |
@@ -274,7 +298,7 @@ Le passage aux transactions suppose alors un jeu de réplicas pour les tests et 
 
 ## 8. Audit
 
-Types à ajouter à `lib/enums.ts` **et** `components/dashboard/security-log.tsx`, détail sans donnée sensible : `EQUIPMENT_CREATED`, `EQUIPMENT_UPDATED`, `EQUIPMENT_ARCHIVED`, `STOCK_PRODUCT_CREATED`, `STOCK_PRODUCT_UPDATED`, `STOCK_PRODUCT_ARCHIVED`, `STOCK_LEVEL_UPDATED` (seuil, activation d'un produit dans un centre), `STOCK_MOVEMENT_RECORDED` (manuel), `STOCK_RECIPE_UPDATED`. La consommation automatique n'ajoute pas d'événement d'audit : le mouvement `CONSUMPTION` est lui-même la trace.
+Types à ajouter à `lib/enums.ts` **et** `components/dashboard/security-log.tsx`, détail sans donnée sensible : `EQUIPMENT_CREATED`, `EQUIPMENT_UPDATED`, `EQUIPMENT_ARCHIVED`, `STOCK_PRODUCT_CREATED`, `STOCK_PRODUCT_UPDATED`, `STOCK_PRODUCT_ARCHIVED`, `STOCK_LEVEL_UPDATED` (seuil, activation d'un produit dans un centre), `STOCK_MOVEMENT_RECORDED` (manuel), `STOCK_RECIPE_UPDATED`, `STOCK_TRANSFERRED` (transfert de produit) et `EQUIPMENT_TRANSFERRED` (transfert de matériel) : détail = identifiants des centres, du transfert, du produit ou de l'équipement et quantité entière, jamais de nom ; écrits seulement quand l'appel a fait avancer le transfert. La consommation automatique n'ajoute pas d'événement d'audit : le mouvement `CONSUMPTION` est lui-même la trace.
 
 ## 9. Limites restantes
 
@@ -288,7 +312,9 @@ Types à ajouter à `lib/enums.ts` **et** `components/dashboard/security-log.tsx
 - `Booking` n'a pas de date de clôture : la règle D9 repose sur `end` et `ServiceRecipe.createdAt` ; un RDV terminé tardivement mais dont la fin précède la recette n'est jamais consommé par le rattrapage.
 - Le mécanisme d'exécution de la réparation après réponse (D10) dépend de la version de Next.js installée : à lire dans `node_modules/next/dist/docs/` avant l'étape concernée.
 - La recette est lue au moment de la consommation (non « figée » sur le RDV) ; elle ignore les options choisies ; une recette modifiée plus tard ne change pas les mouvements passés.
-- Les transferts et réceptions (étapes ultérieures) reposent sur le même principe d'idempotence par opération ; leur reprise sera à démontrer au même niveau de preuve.
+- Les réceptions (F5.5) et les transferts (F5.6) reposent sur le même principe d'idempotence par opération ; leur reprise est démontrée au même niveau de preuve que D6 : un seul processus, MongoDB autonome en mémoire, pannes **simulées** (`lib/stock/receipts.test.ts`, `lib/stock/transfers.test.ts`).
+- **Transferts (F5.6)** : la quantité « en vol » entre la sortie et l'entrée n'est visible que dans l'historique (transfert `PENDING`) ; la somme du stock affichée par centre est temporairement inférieure jusqu'à la fin ou la reprise du transfert. La reprise est **manuelle** (bouton « Reprendre », ou nouvel envoi de la même demande) : pas de cron. Un transfert `PENDING` dont l'interface a perdu la réponse reste donc visible jusqu'à reprise. Course résiduelle étroite non testée : deux appels simultanés d'un même transfert dont le solde source passe de 0 à > 0 entre leurs deux lectures (l'abandon est alors annulé par un contrôle, mais ce chemin n'est pas couvert par un test).
+- Un transfert vers un centre sans niveau crée ce niveau à destination (seuil 0), y compris lorsque l'auteur est un gérant qui ne gère pas ce centre.
 
 ## 10. Points restants
 
@@ -296,3 +322,4 @@ D6 à D11 sont décidées (§0) et implémentées. Écarts connus entre ce docum
 
 - **Consommation automatique** lors du passage d'un rendez-vous à `COMPLETED` : non implémentée (touche les Modules 3 et 6, accord distinct requis). Les recettes sont configurables mais sans effet. Le **rattrapage** (D9) et le compte de rendez-vous à régulariser n'existent donc pas ; la page de stock ne l'affiche pas.
 - **Historique des mouvements** : lecteur paginé par rang (`listStockMovementsAction`) et lecteur des mouvements récents (vue d'ensemble) ajoutés ; aucune édition ni suppression d'un mouvement n'est proposée.
+- **Transferts entre centres (F5.6)** : implémentés pour les produits et le matériel (§6.1, `/dashboard/stock` et `/dashboard/stock/materiel`, historique paginé, reprise). Non faits : transfert partiel du matériel par lot, transfert de plusieurs produits en une seule demande, notification du centre destinataire, réception à confirmer par la destination.

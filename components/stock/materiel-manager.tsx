@@ -18,10 +18,12 @@ import { Modal } from "@/components/ui/modal";
 import { dayKey } from "@/lib/booking/time";
 import { EQUIPMENT_STATUSES, type EquipmentStatus } from "@/lib/enums";
 import type { EquipmentView, MaintenanceRecordView } from "@/lib/stock/equipment";
+import type { TransferView } from "@/lib/stock/transfers";
 import { EQUIPMENT_STATUS_LABELS, MAINTENANCE_STATE_LABELS } from "@/lib/stock/labels";
 import { CenterFilter, Chip, DateText, EmptyState, FieldError, centerName, useFeedback, useSubmit, type CenterItem, type ChipTone } from "./stock-shared";
+import { EquipmentTransferModal, TransfersPanel } from "./transfer-modals";
 
-// F5.1 / F5.4 — Matériel et maintenance. Le centre d'un équipement ne change pas après création. L'historique de maintenance est en
+// F5.1 / F5.4 / F5.6 — Matériel, maintenance et transferts. Le centre d'un équipement ne change que par un transfert (même identité, historique conservé). L'historique de maintenance est en
 // lecture seule : aucune modification ni suppression d'intervention. Les échéances sont calculées à la lecture (pas de rappel de fond).
 
 const STATUS_TONE: Record<EquipmentStatus, ChipTone> = { IN_SERVICE: "ok", IN_MAINTENANCE: "warn", OUT_OF_SERVICE: "bad" };
@@ -31,18 +33,25 @@ type Modal =
   | { type: "edit"; equipment: EquipmentView | null }
   | { type: "schedule"; equipment: EquipmentView }
   | { type: "record"; equipment: EquipmentView }
-  | { type: "history"; equipment: EquipmentView };
+  | { type: "history"; equipment: EquipmentView }
+  | { type: "transfer"; equipment: EquipmentView };
 
 export function MaterielManager({
   centers,
   selectedCenterId,
   equipment,
   schedule,
+  destinations,
+  transfers,
+  transfersNextBefore,
 }: {
   centers: CenterItem[];
   selectedCenterId: string | null;
   equipment: EquipmentView[];
   schedule: EquipmentView[];
+  destinations: CenterItem[];
+  transfers: TransferView[];
+  transfersNextBefore: string | null;
 }) {
   const { t } = useI18n();
   const feedback = useFeedback();
@@ -160,6 +169,9 @@ export function MaterielManager({
                     <button type="button" onClick={() => setModal({ type: "edit", equipment: e })} className="text-white/60 hover:text-white">
                       {t("Modifier")}
                     </button>
+                    <button type="button" onClick={() => setModal({ type: "transfer", equipment: e })} className="text-white/60 hover:text-white">
+                      {t("Transférer")}
+                    </button>
                   </>
                 )}
                 <button type="button" onClick={() => setModal({ type: "history", equipment: e })} className="text-white/60 hover:text-white">
@@ -176,6 +188,9 @@ export function MaterielManager({
         </ul>
       )}
 
+      <TransfersPanel initial={transfers} nextBefore={transfersNextBefore} centers={destinations} selectedCenterId={selectedCenterId} sourceCenterIds={centers.map((c) => c.id)} onFeedback={feedback.show} />
+
+      {modal?.type === "transfer" && <EquipmentTransferModal equipment={modal.equipment} destinations={destinations} onClose={() => setModal(null)} onDone={done} />}
       {modal?.type === "edit" && <EquipmentModal equipment={modal.equipment} centers={centers} defaultCenterId={selectedCenterId} onClose={() => setModal(null)} onDone={done} />}
       {modal?.type === "schedule" && <ScheduleModal equipment={modal.equipment} onClose={() => setModal(null)} onDone={done} />}
       {modal?.type === "record" && <RecordModal equipment={modal.equipment} onClose={() => setModal(null)} onDone={done} />}

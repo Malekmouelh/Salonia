@@ -89,7 +89,7 @@ describe("traductions arabes du Module 5", () => {
     assert.ok(texts.length >= 10);
     const securityLog = readFileSync(join(root, "components/dashboard/security-log.tsx"), "utf8");
     const labels = [...securityLog.matchAll(/STOCK_\w+: \{ label: "([^"]+)"/g)].map((m) => m[1]);
-    assert.equal(labels.length, 9); // 6 (produits, niveaux, mouvements, réception) + 3 (recettes)
+    assert.equal(labels.length, 10); // 6 (produits, niveaux, mouvements, réception) + 3 (recettes) + 1 (transfert de produit, F5.6)
     assert.deepEqual(missing([...texts, ...labels]), []);
   });
 
@@ -149,7 +149,7 @@ describe("traductions arabes : actions du matériel et de la maintenance", () =>
   it("les libellés du journal de sécurité (équipement, maintenance) et les messages de réponse sont traduits", () => {
     const securityLog = readFileSync(join(root, "components/dashboard/security-log.tsx"), "utf8");
     const labels = [...securityLog.matchAll(/(?:EQUIPMENT|MAINTENANCE)_\w+: \{ label: "([^"]+)"/g)].map((m) => m[1]);
-    assert.equal(labels.length, 5);
+    assert.equal(labels.length, 6); // + EQUIPMENT_TRANSFERRED (F5.6)
     const code = readFileSync(join(root, "app/actions/stock.ts"), "utf8").replace(/^\s*\/\/.*$/gm, "");
     const messages = [...code.matchAll(/message: "([^"]+)"/g)].map((m) => m[1]);
     for (const expected of ["Équipement créé.", "Équipement modifié.", "Équipement archivé.", "Maintenance programmée.", "Intervention enregistrée.", "Aucune modification."]) {

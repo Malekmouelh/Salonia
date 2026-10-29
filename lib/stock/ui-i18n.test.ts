@@ -47,6 +47,15 @@ describe("interface du stock : traductions arabes", () => {
     assert.ok(FILES.length >= 12, FILES.join(", "));
   });
 
+  it("les fenêtres et l'historique des transferts (F5.6) sont couverts par ces contrôles, avec des classes logiques pour le sens de lecture", () => {
+    const file = "components/stock/transfer-modals.tsx";
+    assert.ok(FILES.map((f) => f.replaceAll("\\", "/")).includes(file), "transfer-modals.tsx absent de la liste contrôlée");
+    const source = readFileSync(join(root, file), "utf8");
+    assert.match(source, /rtl:rotate-180/); // la flèche source → destination est inversée en arabe
+    assert.match(source, /<DateText value=\{x\.createdAt\} withTime \/>/); // date isolée (<bdi>) dans DateText
+    assert.match(source, /disabled=\{pending\}|SubmitButton pending=\{pending\}/); // pas de double envoi
+  });
+
   it("chaque texte visible a une traduction (clé présente dans AR)", () => {
     const missing: string[] = [];
     let total = 0;

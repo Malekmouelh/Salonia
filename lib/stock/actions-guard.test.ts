@@ -56,6 +56,10 @@ const ACTIONS: Record<string, [string, string, string | null]> = {
   removeRecipeLineAction: ['requireRole("OWNER")', "removeRecipeLine(", "STOCK_RECIPE_REMOVED"],
   listServiceRecipeAction: ['requireRole("OWNER")', "listServiceRecipe(", null],
   listStockMovementsAction: ['requireRole("OWNER", "MANAGER")', "listStockMovements(", null],
+  transferStockProductAction: ['requireRole("OWNER", "MANAGER")', "transferProduct(", "STOCK_TRANSFERRED"],
+  transferEquipmentAction: ['requireRole("OWNER", "MANAGER")', "transferEquipment(", "EQUIPMENT_TRANSFERRED"],
+  resumeStockTransferAction: ['requireRole("OWNER", "MANAGER")', "resumeTransfer(", "STOCK_TRANSFERRED"],
+  listStockTransfersAction: ['requireRole("OWNER", "MANAGER")', "listTransfers(", null],
 };
 
 // Chemins à invalider PAR ACTION D'ÉCRITURE, pour les pages du Module 5 (certaines n'existent pas encore). Appliqués aux actions
@@ -91,6 +95,10 @@ const REVALIDATION: Record<string, string[]> = {
   addRecipeLineAction: [RECIPES],
   updateRecipeLineAction: [RECIPES],
   removeRecipeLineAction: [RECIPES],
+  // F5.6 : un transfert change les niveaux (vue d'ensemble), les produits proposables par centre (commandes) et le matériel par centre.
+  transferStockProductAction: [STOCK, ORDERS, EQUIPMENT],
+  transferEquipmentAction: [STOCK, ORDERS, EQUIPMENT],
+  resumeStockTransferAction: [STOCK, ORDERS, EQUIPMENT],
 };
 
 // Écarts entre la table REVALIDATION et le code des actions, selon l'existence des pages.
@@ -107,7 +115,7 @@ function invalidationProblems(pageExists: (path: string) => boolean, actionBodie
 }
 
 describe("actions de stock : structure du code", () => {
-  it("le fichier est une unité « use server » et n'exporte que les trente-trois actions prévues", () => {
+  it("le fichier est une unité « use server » et n'exporte que les trente-sept actions prévues", () => {
     assert.ok(source.trimStart().startsWith('"use server";'));
     assert.deepEqual([...bodies.keys()].sort(), Object.keys(ACTIONS).sort());
     assert.deepEqual([...source.matchAll(/^export (?!async function|type )(\w+)/gm)].map((m) => m[1]), []); // pas d'export synchrone (interdit dans un fichier « use server »)
@@ -134,7 +142,7 @@ describe("actions de stock : structure du code", () => {
     for (const [name, body] of bodies) {
       const missing = body.indexOf("if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION }");
       assert.ok(missing >= 0, `${name} : contrôle d'organisation manquant`);
-      assert.ok(missing < body.search(/\b(createProduct|updateProduct|archiveProduct|listProducts|activateProductInCenter|updateAlertThreshold|recordStockMovement|listStockLevels|repairStockLevels|receivePurchaseOrder|createEquipment|updateEquipment|archiveEquipment|recordMaintenance|listEquipment|listMaintenanceSchedule|listMaintenanceHistory|createSupplier|updateSupplier|archiveSupplier|listSuppliers|createPurchaseOrder|updateDraftPurchaseOrder|placePurchaseOrder|cancelPurchaseOrder|getPurchaseOrder|listPurchaseOrders|addRecipeLine|updateRecipeLine|removeRecipeLine|listServiceRecipe|listStockMovements)\(/), name);
+      assert.ok(missing < body.search(/\b(createProduct|updateProduct|archiveProduct|listProducts|activateProductInCenter|updateAlertThreshold|recordStockMovement|listStockLevels|repairStockLevels|receivePurchaseOrder|createEquipment|updateEquipment|archiveEquipment|recordMaintenance|listEquipment|listMaintenanceSchedule|listMaintenanceHistory|createSupplier|updateSupplier|archiveSupplier|listSuppliers|createPurchaseOrder|updateDraftPurchaseOrder|placePurchaseOrder|cancelPurchaseOrder|getPurchaseOrder|listPurchaseOrders|addRecipeLine|updateRecipeLine|removeRecipeLine|listServiceRecipe|listStockMovements|transferProduct|transferEquipment|resumeTransfer|listTransfers)\(/), name);
     }
     assert.match(source, /const MSG_NO_ORGANIZATION = "Organisation introuvable\.";/);
   });
@@ -161,7 +169,7 @@ describe("actions de stock : structure du code", () => {
     }
     for (const call of source.matchAll(/logEvent\([\s\S]*?\}\);/g)) {
       // détail construit par un générateur de lib/stock/audit.ts (appel direct, ou variable issue de receiptAuditDetail)
-      assert.match(call[0], /detail(: (productAuditDetail|levelAuditDetail|movementAuditDetail|equipmentAuditDetail|scheduleAuditDetail|maintenanceAuditDetail|supplierAuditDetail|orderAuditDetail|orderStatusAuditDetail|recipeAuditDetail)\(|\s*\})/, call[0]);
+      assert.match(call[0], /detail(: (productAuditDetail|levelAuditDetail|movementAuditDetail|equipmentAuditDetail|scheduleAuditDetail|maintenanceAuditDetail|supplierAuditDetail|orderAuditDetail|orderStatusAuditDetail|recipeAuditDetail|transferAuditDetail)\(|\s*\})/, call[0]);
       assert.doesNotMatch(call[0], /note|raw|input/, call[0]); // jamais la note de mouvement ni la saisie brute
     }
   });
@@ -292,10 +300,54 @@ describe("actions de stock : structure du code", () => {
 describe("audit : types d'événements du Module 5", () => {
   it("chaque événement utilisé existe dans AUTH_EVENT_TYPES et dans le journal de sécurité", () => {
     const used = new Set([...source.matchAll(/logEvent\("(\w+)"/g)].map((m) => m[1]));
-    assert.deepEqual([...used].sort(), ["EQUIPMENT_ARCHIVED", "EQUIPMENT_CREATED", "EQUIPMENT_UPDATED", "MAINTENANCE_RECORDED", "MAINTENANCE_SCHEDULED", "PURCHASE_ORDER_CANCELLED", "PURCHASE_ORDER_CREATED", "PURCHASE_ORDER_PLACED", "PURCHASE_ORDER_UPDATED", "STOCK_LEVEL_UPDATED", "STOCK_MOVEMENT_RECORDED", "STOCK_ORDER_RECEIVED", "STOCK_PRODUCT_ARCHIVED", "STOCK_PRODUCT_CREATED", "STOCK_PRODUCT_UPDATED", "STOCK_RECIPE_ADDED", "STOCK_RECIPE_REMOVED", "STOCK_RECIPE_UPDATED", "SUPPLIER_ARCHIVED", "SUPPLIER_CREATED", "SUPPLIER_UPDATED"]);
+    assert.deepEqual([...used].sort(), ["EQUIPMENT_ARCHIVED", "EQUIPMENT_CREATED", "EQUIPMENT_TRANSFERRED", "EQUIPMENT_UPDATED", "MAINTENANCE_RECORDED", "MAINTENANCE_SCHEDULED", "PURCHASE_ORDER_CANCELLED", "PURCHASE_ORDER_CREATED", "PURCHASE_ORDER_PLACED", "PURCHASE_ORDER_UPDATED", "STOCK_LEVEL_UPDATED", "STOCK_MOVEMENT_RECORDED", "STOCK_ORDER_RECEIVED", "STOCK_PRODUCT_ARCHIVED", "STOCK_PRODUCT_CREATED", "STOCK_PRODUCT_UPDATED", "STOCK_RECIPE_ADDED", "STOCK_RECIPE_REMOVED", "STOCK_RECIPE_UPDATED", "STOCK_TRANSFERRED", "SUPPLIER_ARCHIVED", "SUPPLIER_CREATED", "SUPPLIER_UPDATED"]);
     for (const event of used) {
       assert.ok((AUTH_EVENT_TYPES as readonly string[]).includes(event), `${event} absent de lib/enums.ts`);
       assert.match(securityLog, new RegExp(`${event}: \\{ label: "`), `${event} absent de security-log.tsx`);
     }
+  });
+});
+
+describe("transferts entre centres (F5.6) : structure des actions", () => {
+  const NAMES = ["transferStockProductAction", "transferEquipmentAction", "resumeStockTransferAction", "listStockTransfersAction"];
+  const SERVICE_CALL = /\b(transferProduct|transferEquipment|resumeTransfer|listTransfers)\(/;
+
+  it("les quatre actions authentifient avec requireRole(\"OWNER\", \"MANAGER\") AVANT tout appel : aucune n'est ouverte à un autre rôle", () => {
+    for (const name of NAMES) {
+      const body = bodies.get(name)!;
+      assert.ok(body.indexOf('requireRole("OWNER", "MANAGER")') >= 0, name);
+      assert.ok(body.indexOf("requireRole(") < body.search(SERVICE_CALL), name);
+      assert.doesNotMatch(body, /requireRole\(\)/, name);
+    }
+  });
+
+  it("les centres source et destination ne sont jamais lus par l'action : seul le service les valide (droits dans lib/stock/scope.ts)", () => {
+    for (const name of NAMES) {
+      const body = bodies.get(name)!;
+      assert.doesNotMatch(body, /raw\.(fromCenterId|toCenterId|centerId)|rawField\(/, name);
+      assert.match(body, /\(user, raw\)/, name);
+    }
+  });
+
+  it("sans avancée réelle (transfert déjà terminé), l'action répond AVANT logEvent et n'invalide rien ; l'audit ne contient que des identifiants et la quantité", () => {
+    for (const name of ["transferStockProductAction", "transferEquipmentAction", "resumeStockTransferAction"]) {
+      const body = bodies.get(name)!;
+      const early = body.indexOf("if (!result.advanced) return");
+      assert.ok(early >= 0, name);
+      assert.ok(body.indexOf("if (!result.ok) return result;") < early && early < body.indexOf("logEvent("), name);
+      assert.ok(early < body.indexOf("revalidatePath("), name);
+      assert.doesNotMatch(body, /productName|equipmentName|\.note|name:/, name);
+    }
+    assert.doesNotMatch(bodies.get("listStockTransfersAction")!, /logEvent|revalidatePath|updateTag/);
+  });
+
+  it("le service de transfert n'écrit jamais StockLevel.quantity directement : seuls le journal et projectLevel le font", () => {
+    const code = readFileSync(join(root, "lib/stock/transfers.ts"), "utf8").replace(/^\s*\/\/.*$/gm, "");
+    assert.doesNotMatch(code, /StockLevel\.(updateOne|findOneAndUpdate|updateMany|bulkWrite)/);
+    assert.doesNotMatch(code, /\$inc|\$dec/);
+    assert.match(code, /commitTransferOut\(/);
+    assert.match(code, /commitTransferIn\(/);
+    // Mise à jour conditionnelle du matériel sur le centre source attendu (protège de la course).
+    assert.match(code, /Equipment\.updateOne\(\{ _id: equipmentId, organizationId: ref\.organizationId, centerId: ref\.fromCenterId, active: true \}/);
   });
 });

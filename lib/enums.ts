@@ -30,6 +30,7 @@ export const AUTH_EVENT_TYPES = [
   "EQUIPMENT_CREATED", "EQUIPMENT_UPDATED", "EQUIPMENT_ARCHIVED", "MAINTENANCE_SCHEDULED", "MAINTENANCE_RECORDED",
   "SUPPLIER_CREATED", "SUPPLIER_UPDATED", "SUPPLIER_ARCHIVED", "PURCHASE_ORDER_CREATED", "PURCHASE_ORDER_UPDATED", "PURCHASE_ORDER_PLACED", "PURCHASE_ORDER_CANCELLED",
   "STOCK_RECIPE_ADDED", "STOCK_RECIPE_UPDATED", "STOCK_RECIPE_REMOVED",
+  "STOCK_TRANSFERRED", "EQUIPMENT_TRANSFERRED",
 ] as const;
 export type AuthEventType = (typeof AUTH_EVENT_TYPES)[number];
 
@@ -81,8 +82,16 @@ export type StockUnit = (typeof STOCK_UNITS)[number];
 
 // OPENING = stock initial d'un niveau · IN/OUT = entrée/sortie manuelle · ADJUSTMENT = correction · CONSUMPTION = prestation
 // RECEIPT = réception d'une commande d'achat (une seule par commande et par produit)
-export const STOCK_MOVEMENT_KINDS = ["OPENING", "IN", "OUT", "ADJUSTMENT", "CONSUMPTION", "RECEIPT"] as const;
+// TRANSFER_OUT / TRANSFER_IN = les deux faces d'un transfert de produit entre centres (un seul de chaque par transfert)
+export const STOCK_MOVEMENT_KINDS = ["OPENING", "IN", "OUT", "ADJUSTMENT", "CONSUMPTION", "RECEIPT", "TRANSFER_OUT", "TRANSFER_IN"] as const;
 export type StockMovementKind = (typeof STOCK_MOVEMENT_KINDS)[number];
+
+// Transferts entre centres (F5.6) : un produit (journal de stock) ou un équipement (changement de centre).
+// PENDING = enregistré, pas encore terminé (reprise possible) · COMPLETED = terminé · CANCELLED = abandonné sans effet sur le stock.
+export const STOCK_TRANSFER_KINDS = ["PRODUCT", "EQUIPMENT"] as const;
+export type StockTransferKind = (typeof STOCK_TRANSFER_KINDS)[number];
+export const STOCK_TRANSFER_STATUSES = ["PENDING", "COMPLETED", "CANCELLED"] as const;
+export type StockTransferStatus = (typeof STOCK_TRANSFER_STATUSES)[number];
 
 // Commandes d'achat de réapprovisionnement. RECEIVED est réservé à l'étape de réception (non disponible : voir lib/stock/orders.ts).
 export const PURCHASE_ORDER_STATUSES = ["DRAFT", "ORDERED", "RECEIVED", "CANCELLED"] as const;

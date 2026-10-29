@@ -6,6 +6,7 @@ import { archiveStockProductAction, repairStockLevelsAction } from "@/app/action
 import { BarList, Panel, StatTile } from "@/components/finance/finance-ui";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { AlertIcon, BoxIcon, PlusIcon, SearchIcon } from "@/components/ui/icons";
+import type { TransferView } from "@/lib/stock/transfers";
 import type { RecentMovementRow } from "@/lib/stock/movements";
 import type { StockSummary } from "@/lib/stock/overview";
 import { EQUIPMENT_STATUS_LABELS, MAINTENANCE_STATE_LABELS, PURCHASE_ORDER_STATUS_LABELS, STOCK_MOVEMENT_KIND_LABELS, STOCK_UNIT_LABELS } from "@/lib/stock/labels";
@@ -13,6 +14,7 @@ import type { StockLevelRow } from "@/lib/stock/service";
 import { EQUIPMENT_STATUSES, PURCHASE_ORDER_STATUSES } from "@/lib/enums";
 import { ActivateModal, HistoryModal, MovementModal, ProductModal, ThresholdModal, type LevelTarget } from "./stock-modals";
 import { CenterFilter, Chip, DateText, EmptyState, Qty, centerName, fmtQty, useFeedback, type CenterItem, type ProductItem } from "./stock-shared";
+import { ProductTransferModal, TransfersPanel } from "./transfer-modals";
 
 // Vue d'ensemble du stock : synthèse (chiffres réels des services), produits à surveiller, niveaux par centre, catalogue des produits.
 // Rôles : le propriétaire gère les fiches produit ; le gérant agit sur les niveaux de ses centres. Toutes les écritures passent par les
@@ -23,6 +25,7 @@ type Modal =
   | { type: "history"; target: LevelTarget }
   | { type: "threshold"; target: LevelTarget }
   | { type: "activate" }
+  | { type: "transfer"; initial: { productId: string; centerId: string } | null }
   | { type: "product"; product: ProductItem | null };
 
 export function StockHub({
@@ -33,6 +36,9 @@ export function StockHub({
   recent,
   summary,
   canManageProducts,
+  destinations,
+  transfers,
+  transfersNextBefore,
 }: {
   centers: CenterItem[];
   selectedCenterId: string | null;
@@ -41,6 +47,9 @@ export function StockHub({
   recent: RecentMovementRow[];
   summary: StockSummary;
   canManageProducts: boolean;
+  destinations: CenterItem[];
+  transfers: TransferView[];
+  transfersNextBefore: string | null;
 }) {
   const { t, lang } = useI18n();
   const feedback = useFeedback();
@@ -93,6 +102,9 @@ export function StockHub({
               <PlusIcon width={16} height={16} /> {t("Nouveau produit")}
             </button>
           )}
+          <button type="button" onClick={() => setModal({ type: "transfer", initial: null })} className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-2.5 text-sm text-white/80 transition hover:bg-white/5">
+            <BoxIcon width={16} height={16} /> {t("Transférer")}
+          </button>
           <button type="button" onClick={() => setModal({ type: "activate" })} className="btn-shine flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold text-plum-950">
             <BoxIcon width={16} height={16} /> {t("Activer un produit")}
           </button>
@@ -192,6 +204,10 @@ export function StockHub({
           </Link>
         </Panel>
 
+        <div className="lg:col-span-2">
+          <TransfersPanel initial={transfers} nextBefore={transfersNextBefore} centers={destinations} selectedCenterId={selectedCenterId} sourceCenterIds={centers.map((c) => c.id)} onFeedback={feedback.show} />
+        </div>
+
         <Panel title="Mouvements récents" subtitle="Tous produits, centres autorisés">
           {recent.length === 0 ? (
             <p className="py-6 text-center text-sm text-white/45">{t("Aucun mouvement enregistré.")}</p>
@@ -282,6 +298,11 @@ export function StockHub({
                           {t("Mouvement")}
                         </button>
                       )}
+                      {l.productActive && (
+                        <button type="button" onClick={() => setModal({ type: "transfer", initial: { productId: l.productId, centerId: l.centerId } })} className="text-white/60 hover:text-white">
+                          {t("Transférer")}
+                        </button>
+                      )}
                       <button type="button" onClick={() => setModal({ type: "history", target: target(l) })} className="text-white/60 hover:text-white">
                         {t("Historique")}
                       </button>
@@ -342,6 +363,7 @@ export function StockHub({
       {modal?.type === "threshold" && <ThresholdModal target={modal.target} onClose={() => setModal(null)} onDone={done} />}
       {modal?.type === "history" && <HistoryModal target={modal.target} onClose={() => setModal(null)} />}
       {modal?.type === "activate" && <ActivateModal products={products} centers={centers} defaultCenterId={selectedCenterId} onClose={() => setModal(null)} onDone={done} />}
+      {modal?.type === "transfer" && <ProductTransferModal levels={levels} sources={centers} destinations={destinations} initial={modal.initial} onClose={() => setModal(null)} onDone={done} />}
       {modal?.type === "product" && <ProductModal product={modal.product} onClose={() => setModal(null)} onDone={done} />}
       {feedback.node}
     </div>

@@ -15,6 +15,7 @@ import {
   recipeAuditDetail,
   scheduleAuditDetail,
   supplierAuditDetail,
+  transferAuditDetail,
 } from "@/lib/stock/audit";
 import {
   archiveEquipment,
@@ -57,6 +58,7 @@ import { listStockMovements, type MovementHistory } from "@/lib/stock/movements"
 import { receivePurchaseOrder, type ReceiveResult } from "@/lib/stock/receipts";
 import { addRecipeLine, listServiceRecipe, removeRecipeLine, updateRecipeLine, type RecipeLineView } from "@/lib/stock/recipes";
 import { archiveSupplier, createSupplier, listSuppliers, updateSupplier, type SupplierView } from "@/lib/stock/suppliers";
+import { listTransfers, resumeTransfer, transferEquipment, transferProduct, type TransferHistory, type TransferResult } from "@/lib/stock/transfers";
 
 // Module 5 — Server Actions du stock. Les droits, le périmètre des centres et la validation sont dans lib/stock/service.ts
 // (frontière de sécurité métier) ; l'action authentifie, appelle le service, journalise et renvoie un résultat.
@@ -544,4 +546,79 @@ export async function listServiceRecipeAction(raw: unknown): Promise<StockResult
   const user = await requireRole("OWNER");
   if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
   return run(() => listServiceRecipe(user, raw));
+}
+
+// ── Transferts entre centres (F5.6) : propriétaire (tous les centres), gérant (source : ses centres ; destination : tout centre de l'organisation) ──
+// Droits, centres, plafonnement au stock disponible, idempotence (requestId) et reprise : voir lib/stock/transfers.ts. Un événement d'audit n'est
+// écrit que lorsque l'appel a fait avancer le transfert ; un transfert déjà terminé renvoie un succès sans audit. Les détails d'audit ne
+// contiennent que des identifiants et la quantité. Les mouvements TRANSFER_OUT / TRANSFER_IN du journal sont la trace des quantités.
+
+export async function transferStockProductAction(raw: unknown): Promise<WithMessage<TransferResult>> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
+
+  const result = await run(() => transferProduct(user, raw));
+  if (!result.ok) return result;
+  if (!result.advanced) return { ...result, message: "Ce transfert avait déjà été effectué." };
+
+  await logEvent("STOCK_TRANSFERRED", {
+    userId: user.id,
+    organizationId: user.organization.id,
+    detail: transferAuditDetail({ transferId: result.transfer.id, fromCenterId: result.transfer.fromCenterId, toCenterId: result.transfer.toCenterId, productId: result.transfer.productId ?? undefined, quantity: result.transferred ?? 0 }),
+  });
+  revalidatePath("/dashboard/stock");
+  revalidatePath("/dashboard/stock/commandes");
+  revalidatePath("/dashboard/stock/materiel");
+  return { ...result, message: result.capped ? "Transfert effectué : la quantité a été plafonnée au stock disponible." : "Transfert effectué." };
+}
+
+export async function transferEquipmentAction(raw: unknown): Promise<WithMessage<TransferResult>> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
+
+  const result = await run(() => transferEquipment(user, raw));
+  if (!result.ok) return result;
+  if (!result.advanced) return { ...result, message: "Ce transfert avait déjà été effectué." };
+
+  await logEvent("EQUIPMENT_TRANSFERRED", {
+    userId: user.id,
+    organizationId: user.organization.id,
+    detail: transferAuditDetail({ transferId: result.transfer.id, fromCenterId: result.transfer.fromCenterId, toCenterId: result.transfer.toCenterId, equipmentId: result.transfer.equipmentId ?? undefined }),
+  });
+  revalidatePath("/dashboard/stock");
+  revalidatePath("/dashboard/stock/commandes");
+  revalidatePath("/dashboard/stock/materiel");
+  return { ...result, message: "Transfert effectué." };
+}
+
+// Reprise d'un transfert resté incomplet : termine les étapes manquantes sans jamais sortir ni entrer deux fois la même quantité.
+export async function resumeStockTransferAction(raw: unknown): Promise<WithMessage<TransferResult>> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
+
+  const result = await run(() => resumeTransfer(user, raw));
+  if (!result.ok) return result;
+  if (!result.advanced) return { ...result, message: "Ce transfert avait déjà été effectué." };
+
+  const detail = transferAuditDetail({
+    transferId: result.transfer.id,
+    fromCenterId: result.transfer.fromCenterId,
+    toCenterId: result.transfer.toCenterId,
+    productId: result.transfer.productId ?? undefined,
+    equipmentId: result.transfer.equipmentId ?? undefined,
+    quantity: result.transferred ?? 0,
+  });
+  if (result.transfer.kind === "PRODUCT") await logEvent("STOCK_TRANSFERRED", { userId: user.id, organizationId: user.organization.id, detail });
+  else await logEvent("EQUIPMENT_TRANSFERRED", { userId: user.id, organizationId: user.organization.id, detail });
+  revalidatePath("/dashboard/stock");
+  revalidatePath("/dashboard/stock/commandes");
+  revalidatePath("/dashboard/stock/materiel");
+  return { ...result, message: "Transfert repris et terminé." };
+}
+
+// Historique des transferts des centres autorisés, paginé par curseur. Lecture seule : ni audit ni invalidation.
+export async function listStockTransfersAction(raw?: unknown): Promise<StockResult<TransferHistory>> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
+  return run(() => listTransfers(user, raw));
 }

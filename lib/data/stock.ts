@@ -7,9 +7,10 @@ import { listRecentStockMovements } from "@/lib/stock/movements";
 import { summarizeStock } from "@/lib/stock/overview";
 import { listPurchaseOrders } from "@/lib/stock/purchase-orders";
 import { listServiceRecipe } from "@/lib/stock/recipes";
-import { canManageProductDefinitions, stockCenters } from "@/lib/stock/scope";
+import { canManageProductDefinitions, stockCenters, transferDestinations } from "@/lib/stock/scope";
 import { listProducts, listStockLevels, repairStockLevels, type StockResult } from "@/lib/stock/service";
 import { listSuppliers } from "@/lib/stock/suppliers";
+import { listTransfers } from "@/lib/stock/transfers";
 
 // Module 5 — Lectures des pages du stock. Chaque page appelle les services du Module 5 (qui appliquent rôle, organisation et centres
 // autorisés) ; aucune collection n'est lue directement ici. Un échec de service lève une erreur : la page affiche l'état d'erreur.
@@ -26,16 +27,24 @@ function resolveCenter(user: CurrentUser, requested: string | undefined) {
   return { centers, selectedCenterId };
 }
 
+// Transferts entre centres (F5.6) : première page de l'historique des centres autorisés, et destinations possibles (tous les centres de
+// l'organisation). Les pages suivantes sont chargées par listStockTransfersAction (pagination par curseur).
+async function getTransfersData(user: CurrentUser, center: string | undefined) {
+  const history = unwrap(await listTransfers(user, { centerId: center, limit: 10 }));
+  return { transfers: history.transfers, transfersNextBefore: history.nextBefore, destinations: transferDestinations(user) };
+}
+
 export async function getStockHubData(user: CurrentUser, requestedCenter?: string) {
   const { centers, selectedCenterId } = resolveCenter(user, requestedCenter);
   const center = selectedCenterId ?? undefined;
-  const [products, levels, equipment, schedule, orders, recent] = await Promise.all([
+  const [products, levels, equipment, schedule, orders, recent, transferData] = await Promise.all([
     listProducts(user).then(unwrap),
     listStockLevels(user, center).then(unwrap),
     listEquipment(user, center).then(unwrap),
     listMaintenanceSchedule(user, center).then(unwrap),
     listPurchaseOrders(user, center).then(unwrap),
     listRecentStockMovements(user, center, { limit: 10 }).then(unwrap),
+    getTransfersData(user, center),
   ]);
 
   // Projections en retard ou divergentes : réparées APRÈS l'envoi de la réponse (aucun mouvement créé, affichage non bloqué).
@@ -66,14 +75,15 @@ export async function getStockHubData(user: CurrentUser, requestedCenter?: strin
     recent: recent.movements,
     summary,
     canManageProducts: canManageProductDefinitions(user),
+    ...transferData,
   };
 }
 
 export async function getEquipmentPageData(user: CurrentUser, requestedCenter?: string) {
   const { centers, selectedCenterId } = resolveCenter(user, requestedCenter);
   const center = selectedCenterId ?? undefined;
-  const [equipment, schedule] = await Promise.all([listEquipment(user, center, true).then(unwrap), listMaintenanceSchedule(user, center).then(unwrap)]);
-  return { centers, selectedCenterId, equipment: equipment.equipment, schedule: schedule.schedule };
+  const [equipment, schedule, transferData] = await Promise.all([listEquipment(user, center, true).then(unwrap), listMaintenanceSchedule(user, center).then(unwrap), getTransfersData(user, center)]);
+  return { centers, selectedCenterId, equipment: equipment.equipment, schedule: schedule.schedule, ...transferData };
 }
 
 export async function getSuppliersPageData(user: CurrentUser) {

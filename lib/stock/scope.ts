@@ -105,3 +105,32 @@ export function requireSupplierAdmin(user: Actor): string {
   if (!canManageProductDefinitions(user) || !user.organization) throw new StockAccessError(MSG_STOCK_FORBIDDEN);
   return user.organization.id;
 }
+
+// ── Transferts entre centres (F5.6) ──
+// Source : seulement les centres sur lesquels l'acteur administre le stock (OWNER : tous ; MANAGER : les siens). Destination : n'importe quel
+// centre de l'organisation (un gérant peut envoyer vers tous les centres, jamais prélever dans un centre qui n'est pas le sien).
+// Un centre source ou destination inconnu, d'une autre organisation ou (source) hors périmètre reçoit toujours « Centre introuvable. ».
+export const MSG_TRANSFER_SAME_CENTER = "Les centres source et destination doivent être différents.";
+
+// Tous les centres de l'organisation de l'acteur : destinations possibles d'un transfert. Aucun accès sans droit d'administration du stock.
+export function transferDestinations(user: Actor) {
+  if (!canAdministerStock(user) || !user.organization) return [];
+  return user.organization.centers.map((c) => ({ id: c.id, name: c.name }));
+}
+
+// Valide une destination fournie par le client : renvoie son identifiant si le centre est dans l'organisation, sinon null.
+export function resolveTransferDestination(user: Actor, centerId: unknown): string | null {
+  if (typeof centerId !== "string" || centerId === "") return null;
+  return transferDestinations(user).find((c) => c.id === centerId)?.id ?? null;
+}
+
+// Garde d'un transfert : droit d'administration, source dans le périmètre de l'acteur, destination dans l'organisation, centres différents.
+export function requireTransferCenters(user: Actor, fromCenterId: unknown, toCenterId: unknown): { organizationId: string; fromCenterId: string; toCenterId: string } {
+  const organizationId = requireStockAdmin(user);
+  const from = resolveStockCenter(user, fromCenterId);
+  if (!from) throw new StockAccessError(MSG_STOCK_CENTER_NOT_FOUND);
+  const to = resolveTransferDestination(user, toCenterId);
+  if (!to) throw new StockAccessError(MSG_STOCK_CENTER_NOT_FOUND);
+  if (to === from) throw new StockAccessError(MSG_TRANSFER_SAME_CENTER);
+  return { organizationId, fromCenterId: from, toCenterId: to };
+}

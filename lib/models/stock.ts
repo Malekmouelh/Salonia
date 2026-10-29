@@ -1,8 +1,8 @@
 import mongoose, { Schema, type InferSchemaType, type Model } from "mongoose";
-import { EQUIPMENT_STATUSES, PURCHASE_ORDER_STATUSES, STOCK_MOVEMENT_KINDS, STOCK_UNITS } from "@/lib/enums";
+import { EQUIPMENT_STATUSES, PURCHASE_ORDER_STATUSES, STOCK_MOVEMENT_KINDS, STOCK_TRANSFER_KINDS, STOCK_TRANSFER_STATUSES, STOCK_UNITS } from "@/lib/enums";
 
 // Module 5 : Matériel et stock (Syrine). Schéma de référence : docs/module-5-schema.md.
-// Collections : equipment, stockproducts, stocklevels, servicerecipes, stockmovements, maintenancerecords, suppliers, purchaseorders.
+// Collections : equipment, stockproducts, stocklevels, servicerecipes, stockmovements, maintenancerecords, suppliers, purchaseorders, stocktransfers.
 //
 // Ce fichier ne contient que les structures et contraintes de données. Il ne garantit PAS à lui seul :
 //  - l'isolation par organisation et par centre (droits, services et requêtes filtrées viendront dans les étapes suivantes) ;
@@ -111,6 +111,8 @@ const StockMovementSchema = new Schema(
     bookingId: { type: ObjectId, ref: "Booking", immutable: true },
     // RECEIPT seulement : commande d'achat reçue (une réception par commande et par produit).
     purchaseOrderId: { type: ObjectId, ref: "PurchaseOrder", immutable: true },
+    // TRANSFER_OUT / TRANSFER_IN seulement : transfert entre centres (un seul mouvement de chaque sens par transfert et par produit).
+    transferId: { type: ObjectId, ref: "StockTransfer", immutable: true },
     note: { type: String, trim: true, maxlength: MAX_MOVEMENT_NOTE, immutable: true },
     createdBy: { type: ObjectId, ref: "User", immutable: true },
   },
@@ -119,7 +121,7 @@ const StockMovementSchema = new Schema(
 
 // Cohérence interne d'un mouvement (ne remplace pas les contrôles du service, qui connaîtra le journal).
 StockMovementSchema.pre("validate", function () {
-  const { kind, delta, seq, requested, shortfall, bookingId, note, purchaseOrderId } = this;
+  const { kind, delta, seq, requested, shortfall, bookingId, note, purchaseOrderId, transferId } = this;
   const consumption = kind === "CONSUMPTION";
 
   if (!consumption && (requested != null || shortfall != null)) {
@@ -141,6 +143,12 @@ StockMovementSchema.pre("validate", function () {
     this.invalidate("purchaseOrderId", "Seule une réception est liée à une commande d'achat.");
   }
 
+  const transfer = kind === "TRANSFER_OUT" || kind === "TRANSFER_IN";
+  if (kind === "TRANSFER_OUT" && delta >= 0) this.invalidate("delta", "Un transfert sortant doit être négatif.");
+  if (kind === "TRANSFER_IN" && delta <= 0) this.invalidate("delta", "Un transfert entrant doit être positif.");
+  if (transfer && !transferId) this.invalidate("transferId", "Un mouvement de transfert est lié à un transfert.");
+  else if (!transfer && transferId) this.invalidate("transferId", "Seul un mouvement de transfert est lié à un transfert.");
+
   if (consumption) {
     if (delta > 0) this.invalidate("delta", "Une consommation ne peut pas être positive.");
     if (!bookingId) this.invalidate("bookingId", "Une consommation est liée à un rendez-vous.");
@@ -157,6 +165,9 @@ StockMovementSchema.index({ productId: 1, centerId: 1, seq: 1 }, { unique: true 
 StockMovementSchema.index({ bookingId: 1, productId: 1 }, { unique: true, partialFilterExpression: { kind: "CONSUMPTION" } });
 // Une seule réception par (commande d'achat, produit) : socle de l'idempotence de la réception (à démontrer par des tests).
 StockMovementSchema.index({ purchaseOrderId: 1, productId: 1 }, { unique: true, partialFilterExpression: { kind: "RECEIPT" } });
+// Un seul TRANSFER_OUT et un seul TRANSFER_IN par (transfert, produit) : socle de l'idempotence des transferts. Index partiel : les
+// mouvements existants (sans transferId) n'y entrent pas, aucune migration.
+StockMovementSchema.index({ transferId: 1, productId: 1, kind: 1 }, { unique: true, partialFilterExpression: { transferId: { $exists: true } } });
 StockMovementSchema.index({ organizationId: 1, centerId: 1, productId: 1, createdAt: -1 });
 StockMovementSchema.index({ productId: 1, centerId: 1, kind: 1, createdAt: 1 });
 StockMovementSchema.index({ organizationId: 1, centerId: 1, createdAt: -1 });
@@ -247,3 +258,48 @@ const PurchaseOrderSchema = new Schema(
 PurchaseOrderSchema.index({ organizationId: 1, centerId: 1, status: 1, createdAt: -1 });
 PurchaseOrderSchema.index({ supplierId: 1, createdAt: -1 });
 export const PurchaseOrder = model("PurchaseOrder", PurchaseOrderSchema);
+
+// F5.6 — Transfert entre centres. Un document par transfert, créé AVANT tout effet (statut PENDING) puis terminé (COMPLETED) ou abandonné
+// sans effet (CANCELLED). Produit : les mouvements TRANSFER_OUT (source) et TRANSFER_IN (destination) du journal portent son identifiant ;
+// la quantité transférée peut être inférieure à la quantité demandée (plafond au stock disponible). Matériel : le document est la trace
+// du changement de centre (l'équipement garde son _id et son historique de maintenance). requestId (fourni par le client, unique par
+// organisation) rend l'envoi idempotent : un nouvel envoi retrouve le même transfert.
+const StockTransferSchema = new Schema(
+  {
+    organizationId: { type: ObjectId, ref: "Organization", required: true, immutable: true },
+    requestId: { type: String, required: true, trim: true, immutable: true },
+    kind: { type: String, enum: STOCK_TRANSFER_KINDS, required: true, immutable: true },
+    fromCenterId: { type: ObjectId, ref: "Center", required: true, immutable: true },
+    toCenterId: { type: ObjectId, ref: "Center", required: true, immutable: true },
+    productId: { type: ObjectId, ref: "StockProduct", immutable: true },
+    equipmentId: { type: ObjectId, ref: "Equipment", immutable: true },
+    // Produit seulement : quantité demandée (immuable) et quantité réellement transférée (posée à la fin ; 0 si rien n'a pu l'être).
+    requestedQuantity: { type: Number, min: 1, validate: integer, immutable: true },
+    // null tant que le transfert n'est pas terminé (le validateur d'entier de Mongoose refuserait null).
+    transferredQuantity: { type: Number, min: 0, validate: { validator: (v: unknown) => v == null || Number.isInteger(v), message: "{PATH} doit être un entier." }, default: null },
+    status: { type: String, enum: STOCK_TRANSFER_STATUSES, default: "PENDING" },
+    createdBy: { type: ObjectId, ref: "User", immutable: true },
+    completedAt: Date,
+    cancelledAt: Date,
+  },
+  { timestamps: true },
+);
+StockTransferSchema.pre("validate", function () {
+  const { kind, fromCenterId, toCenterId, productId, equipmentId, requestedQuantity, transferredQuantity } = this;
+  if (fromCenterId && toCenterId && String(fromCenterId) === String(toCenterId)) this.invalidate("toCenterId", "Les centres source et destination doivent être différents.");
+  if (kind === "PRODUCT") {
+    if (!productId) this.invalidate("productId", "Un transfert de produit désigne un produit.");
+    if (requestedQuantity == null) this.invalidate("requestedQuantity", "Un transfert de produit indique la quantité demandée.");
+    if (equipmentId) this.invalidate("equipmentId", "Un transfert de produit ne désigne pas d'équipement.");
+    if (transferredQuantity != null && requestedQuantity != null && transferredQuantity > requestedQuantity) this.invalidate("transferredQuantity", "La quantité transférée ne peut pas dépasser la quantité demandée.");
+  } else if (kind === "EQUIPMENT") {
+    if (!equipmentId) this.invalidate("equipmentId", "Un transfert de matériel désigne un équipement.");
+    if (productId || requestedQuantity != null || transferredQuantity != null) this.invalidate("productId", "Un transfert de matériel n'a ni produit ni quantité.");
+  }
+});
+StockTransferSchema.index({ organizationId: 1, requestId: 1 }, { unique: true });
+// Un équipement ne peut avoir qu'un seul transfert en cours (« déjà en transfert »).
+StockTransferSchema.index({ equipmentId: 1 }, { unique: true, partialFilterExpression: { kind: "EQUIPMENT", status: "PENDING" } });
+StockTransferSchema.index({ organizationId: 1, fromCenterId: 1, createdAt: -1 });
+StockTransferSchema.index({ organizationId: 1, toCenterId: 1, createdAt: -1 });
+export const StockTransfer = model("StockTransfer", StockTransferSchema);

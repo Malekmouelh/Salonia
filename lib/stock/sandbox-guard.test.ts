@@ -94,7 +94,7 @@ describe("intégration de l'interface du stock", () => {
   });
 
   it("les composants client n'importent jamais de modèle ni de code serveur : seulement des actions, des étiquettes et des types", () => {
-    for (const file of ["stock-hub", "stock-modals", "stock-shared", "materiel-manager", "suppliers-manager", "orders-manager", "recipes-manager"]) {
+    for (const file of ["stock-hub", "stock-modals", "stock-shared", "materiel-manager", "suppliers-manager", "orders-manager", "recipes-manager", "transfer-modals"]) {
       const source = read(`components/stock/${file}.tsx`);
       assert.doesNotMatch(source, /@\/lib\/models\/|server-only|@\/lib\/db|@\/lib\/dal/, file);
       for (const m of source.matchAll(/^import (?!type)[^;]*from "(@\/lib\/stock\/[^"]+)"/gm)) assert.match(m[1], /labels$/, `${file} : import non-type de ${m[1]}`);

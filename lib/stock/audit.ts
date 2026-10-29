@@ -53,3 +53,9 @@ export function recipeAuditDetail(p: { serviceId: string; productId: string; qua
   const qty = p.previousQuantity === undefined ? `${p.quantity}` : `${p.previousQuantity}->${p.quantity}`;
   return `service:${p.serviceId} product:${p.productId} qty:${qty}`;
 }
+
+// Transferts entre centres : identifiants et quantité entière uniquement (jamais le nom du produit ni de l'équipement).
+export function transferAuditDetail(p: { transferId: string; fromCenterId: string; toCenterId: string; productId?: string; equipmentId?: string; quantity?: number }) {
+  const subject = p.productId ? `product:${p.productId} qty:${p.quantity ?? 0}` : `equipment:${p.equipmentId}`;
+  return `transfer:${p.transferId} from:${p.fromCenterId} to:${p.toCenterId} ${subject}`;
+}

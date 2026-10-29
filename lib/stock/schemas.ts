@@ -202,3 +202,33 @@ export const RecentMovementsSchema = z.object({
     .max(RECENT_MOVEMENTS_MAX_LIMIT, "Limite invalide.")
     .default(RECENT_MOVEMENTS_DEFAULT_LIMIT),
 });
+
+// ── Transferts entre centres (F5.6) ──
+// Les centres (fromCenterId, toCenterId) sont validés séparément par lib/stock/scope.ts. requestId : identifiant d'envoi généré par le client,
+// qui rend le transfert idempotent (même identifiant = même transfert).
+export const TRANSFER_HISTORY_DEFAULT_LIMIT = 10;
+export const TRANSFER_HISTORY_MAX_LIMIT = 50;
+
+const RequestId = z.string("Identifiant de demande invalide.").regex(/^[A-Za-z0-9_-]{16,64}$/, "Identifiant de demande invalide.");
+
+export const TransferProductSchema = z.object({
+  requestId: RequestId,
+  productId: ObjectIdString,
+  quantity: z.number("Quantité entière attendue.").int("Quantité entière attendue.").min(1, "La quantité doit être positive.").max(MAX_STOCK_QUANTITY, "Quantité trop grande."),
+});
+
+export const TransferEquipmentSchema = z.object({ requestId: RequestId, equipmentId: EquipmentId });
+
+export const TransferIdSchema = z.object({ transferId: ObjectIdString });
+
+// Historique : pagination par curseur sur l'identifiant du transfert (du plus récent au plus ancien).
+export const TransferHistorySchema = z.object({
+  limit: z
+    .number("Limite invalide.")
+    .int("Limite invalide.")
+    .min(1, "Limite invalide.")
+    .max(TRANSFER_HISTORY_MAX_LIMIT, "Limite invalide.")
+    .default(TRANSFER_HISTORY_DEFAULT_LIMIT),
+  before: ObjectIdString.optional(),
+  kind: z.enum(["PRODUCT", "EQUIPMENT"], "Type de transfert invalide.").optional(),
+});
