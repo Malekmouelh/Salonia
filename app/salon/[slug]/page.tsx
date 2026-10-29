@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { PublicSalonPage } from "@/components/vitrine/public-salon-page";
 import { getPublicSalonShowcase } from "@/lib/data/vitrine";
@@ -29,7 +30,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function SalonShowcasePage({ params }: Props) {
+// Next.js 16 : données lues à la requête, donc rendues dans un <Suspense>.
+export default function Page(props: Props) {
+  return (
+    <Suspense fallback={<div className="min-h-screen animate-pulse bg-[#180916]" />}>
+      <SalonShowcase {...props} />
+    </Suspense>
+  );
+}
+
+async function SalonShowcase({ params }: Props) {
   const { slug } = await params;
   const salon = await getPublicSalonShowcase(slug);
   if (!salon) notFound();

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { LanguageToggle, T } from "@/components/i18n/i18n-provider";
@@ -37,7 +38,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function CenterShowcasePage({ params }: Props) {
+// Next.js 16 : données lues à la requête, donc rendues dans un <Suspense>.
+export default function Page(props: Props) {
+  return (
+    <Suspense fallback={<div className="min-h-screen animate-pulse bg-[#180916]" />}>
+      <CenterShowcase {...props} />
+    </Suspense>
+  );
+}
+
+async function CenterShowcase({ params }: Props) {
   const { slug, centerId } = await params;
   const data = await getPublicCenterShowcase(slug, centerId);
   if (!data) notFound();
