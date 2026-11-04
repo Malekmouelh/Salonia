@@ -108,6 +108,11 @@ du Module 6) ; « Mes rendez-vous » sur son tableau de bord affiche ses rendez-
 Règles métier : pas de double réservation (revérification à l'enregistrement), fuseau Africa/Tunis,
 annulation/report en ligne jusqu'à 2 h avant, rappels uniquement avec consentement.
 
+**Acompte sécurisé par la blockchain (SalonEscrow)** : pour un centre configuré, l'acompte est bloqué dans un smart
+contract (jeton de test MockTND), remboursé si le client annule 24 h ou plus avant, sinon versé au salon ; le staff
+valide la prestation ou l'absence depuis le calendrier. Le serveur signe toutes les transactions (viem). Désactivé
+sans variables `ESCROW_*`. Détails, lancement local et préparation Sepolia : [`docs/salonescrow.md`](docs/salonescrow.md).
+
 ## Module 4 — Équipe
 
 Périmètre réalisé (d'après le résumé du cahier des charges ; le texte intégral n'a pas été relu exigence par exigence) :

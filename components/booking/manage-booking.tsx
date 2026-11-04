@@ -65,7 +65,17 @@ export function ManageBooking({ token, booking: b }: { token: string; booking: M
         </p>
       )}
 
-      {active && !past && mode === "view" && (
+      {active && !past && mode === "view" && b.hasEscrow && (
+        <div className="glass rounded-[2rem] p-5 text-sm text-white/70">
+          <p className="text-white">🔒 {t("Acompte sécurisé par la blockchain")}</p>
+          <p className="mt-1">{t("Cette réservation a un acompte sécurisé : annulez-la depuis votre espace client. Elle ne peut pas être déplacée.")}</p>
+          <Link href="/dashboard" className="btn-shine mt-4 inline-block rounded-xl px-4 py-2 text-sm font-semibold text-plum-950">
+            {t("Mon espace")}
+          </Link>
+        </div>
+      )}
+
+      {active && !past && mode === "view" && !b.hasEscrow && (
         <div className="grid grid-cols-2 gap-3">
           <button type="button" onClick={() => setMode("reschedule")} className="btn-shine rounded-2xl py-3.5 text-sm font-semibold text-plum-950">
             {t("Changer d'horaire")}

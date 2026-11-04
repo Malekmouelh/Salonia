@@ -44,6 +44,7 @@ const EVENTS: Record<AuthEventType, { label: string; tone: string }> = {
   BOOKING_CANCELLED: { label: "Rendez-vous annulé", tone: "bg-red-400" },
   BOOKING_RESCHEDULED: { label: "Rendez-vous reporté", tone: "bg-amber-400" },
   REMINDERS_SENT: { label: "Rappels envoyés", tone: "bg-sky-400" },
+  ESCROW_SETTLED: { label: "Acompte réglé sur la blockchain", tone: "bg-emerald-400" },
   PAYMENT_RECORDED: { label: "Paiement encaissé", tone: "bg-emerald-400" },
   PAYMENT_REFUNDED: { label: "Paiement remboursé", tone: "bg-amber-400" },
   INVOICE_ISSUED: { label: "Facture émise", tone: "bg-champagne" },

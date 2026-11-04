@@ -9,6 +9,7 @@ import { LogoMark } from "@/components/ui/logo";
 import { decodeDraft } from "@/lib/booking/draft";
 import { getBookingClient } from "@/lib/data/booking-client";
 import { getPublicSalon } from "@/lib/data/public-salon";
+import { getEscrowOffers } from "@/lib/escrow/service";
 
 export async function generateMetadata({ params }: PageProps<"/reserver/[slug]">): Promise<Metadata> {
   const { slug } = await params;
@@ -44,6 +45,8 @@ async function Wizard({
   if (!salon) notFound();
   // Retour de connexion / inscription : la réservation en cours est reprise à l'étape de confirmation.
   const draft = decodeDraft(query.reprise);
+  // Acompte sécurisé (SalonEscrow) : lu sur la chaîne à chaque affichage, jamais mis en cache.
+  const escrow = await getEscrowOffers(salon.id);
 
   return (
     <>
@@ -64,7 +67,12 @@ async function Wizard({
           <LanguageToggle />
         </div>
       </header>
-      <BookingWizard salon={salon} client={client} draft={draft && salon.centers.some((c) => c.id === draft.centerId) ? draft : null} />
+      <BookingWizard
+        salon={salon}
+        client={client}
+        draft={draft && salon.centers.some((c) => c.id === draft.centerId) ? draft : null}
+        escrow={escrow}
+      />
     </>
   );
 }

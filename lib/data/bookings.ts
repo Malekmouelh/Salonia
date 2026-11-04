@@ -23,8 +23,10 @@ import type {
   ServiceOption,
 } from "@/lib/booking/types";
 import { connectDB } from "@/lib/db";
+import { unitsToTnd } from "@/lib/escrow/rules";
+import { readEscrowStatuses } from "@/lib/escrow/service";
 import { accessibleCenterIds, type CurrentUser } from "@/lib/dal";
-import type { BlockKind, BookingSource, BookingStatus } from "@/lib/enums";
+import type { BlockKind, BookingSource, BookingStatus, EscrowStatus } from "@/lib/enums";
 import { AvailabilityBlock, Booking, Customer, WaitlistEntry } from "@/lib/models/booking";
 import { Pack, Service } from "@/lib/models/catalog";
 import { Payment } from "@/lib/models/finance";
@@ -154,6 +156,9 @@ export async function getCalendarData(
         totalTnd: b.totalTnd,
         notes: b.notes ?? null,
         reminderSentAt: b.reminderSentAt?.toISOString() ?? null,
+        escrow: b.escrow
+          ? { depositTnd: unitsToTnd(b.escrow.depositUnits), status: b.escrow.status as EscrowStatus, refunded: b.escrow.refunded ?? null }
+          : null,
         risk: isUpcoming
           ? scoreBooking(model, {
               start: b.start,
@@ -398,6 +403,10 @@ export async function getMyBookings(user: CurrentUser) {
   const payments = await Payment.find({ bookingId: { $in: bookings.map((b) => b._id) }, status: "PAID" })
     .select("bookingId kind amountTnd status")
     .lean();
+  // SalonEscrow : le statut de l'acompte est relu sur la chaîne (elle fait foi), la base n'en garde qu'une copie.
+  const chainStatuses = await readEscrowStatuses(
+    bookings.flatMap((b) => (b.escrow ? [{ id: String(b._id), network: b.escrow.network, chainBookingId: b.escrow.chainBookingId }] : [])),
+  );
   return bookings.map((b) => ({
     id: String(b._id),
     start: b.start.toISOString(),
@@ -408,5 +417,16 @@ export async function getMyBookings(user: CurrentUser) {
     salonSlug: b.organizationId.slug,
     totalTnd: b.totalTnd,
     dueTnd: balanceDue(b.totalTnd, payments.filter((p) => String(p.bookingId) === String(b._id))),
+    escrow: b.escrow
+      ? {
+          depositTnd: unitsToTnd(b.escrow.depositUnits),
+          chainBookingId: b.escrow.chainBookingId,
+          status: chainStatuses[String(b._id)] ?? b.escrow.status!,
+          fromChain: chainStatuses[String(b._id)] != null,
+          refunded: b.escrow.refunded ?? null,
+        }
+      : null,
   }));
 }
+
+export type MyBooking = Awaited<ReturnType<typeof getMyBookings>>[number];

@@ -1,5 +1,5 @@
 import mongoose, { Schema, type InferSchemaType, type Model } from "mongoose";
-import { BLOCK_KINDS, BOOKING_SOURCES, BOOKING_STATUSES, WAITLIST_STATUSES } from "@/lib/enums";
+import { BLOCK_KINDS, BOOKING_SOURCES, BOOKING_STATUSES, ESCROW_STATUSES, WAITLIST_STATUSES } from "@/lib/enums";
 
 // Module 3 : Calendrier et réservations (Malek).
 // Collections : customers, bookings, availabilityblocks, waitlistentries, notifications.
@@ -52,6 +52,25 @@ const BookingItemSchema = new Schema(
   { _id: false },
 );
 
+// SalonEscrow — acompte bloqué sur la chaîne. Copie locale pour l'affichage : la chaîne reste la référence
+// (statut relu avec getBooking). Aucune donnée personnelle n'est envoyée sur la chaîne.
+const BookingEscrowSchema = new Schema(
+  {
+    network: { type: String, required: true }, // "hardhat" (local) ou "sepolia"
+    chainBookingId: { type: Number, required: true },
+    centerChainId: { type: Number, required: true },
+    practitionerChainId: { type: Number, required: true },
+    // Montant en plus petite unité du jeton (6 décimales), en texte : un bigint ne tient pas dans un Number.
+    depositUnits: { type: String, required: true },
+    clientAddress: { type: String, required: true },
+    status: { type: String, enum: ESCROW_STATUSES, default: "CONFIRMED" },
+    refunded: { type: Boolean, default: null },
+    createTxHash: { type: String, required: true },
+    settleTxHash: String,
+  },
+  { _id: false },
+);
+
 // F3.3 — Réservation : lie client, centre, service ou pack, praticien et créneau.
 const BookingSchema = new Schema(
   {
@@ -77,10 +96,16 @@ const BookingSchema = new Schema(
     cancelledAt: Date,
     cancelReason: String,
     rescheduledFromStart: Date,
+    escrow: { type: BookingEscrowSchema, default: null },
   },
   { timestamps: true },
 );
 BookingSchema.index({ centerId: 1, start: 1 });
+// Une réservation de la chaîne ne peut être reliée qu'à un seul rendez-vous Salonia.
+BookingSchema.index(
+  { "escrow.network": 1, "escrow.chainBookingId": 1 },
+  { unique: true, partialFilterExpression: { "escrow.chainBookingId": { $exists: true } } },
+);
 BookingSchema.index({ staffId: 1, start: 1 });
 BookingSchema.index({ customerId: 1, start: -1 });
 BookingSchema.index({ organizationId: 1, start: 1 });

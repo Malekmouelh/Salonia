@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { createOnlineBooking, getPublicMonthAvailability, getPublicSlots, joinPublicWaitlist, validatePromoCodeAction } from "@/app/actions/public-booking";
+import { createOnlineBooking, getEscrowSlotStatus, getPublicMonthAvailability, getPublicSlots, joinPublicWaitlist, validatePromoCodeAction } from "@/app/actions/public-booking";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, PinIcon, SparkleIcon } from "@/components/ui/icons";
 import type { Slot } from "@/lib/booking/availability";
@@ -12,7 +12,9 @@ import { governorateLabel } from "@/lib/definitions";
 import { BookingChat } from "./booking-chat";
 import { encodeDraft, type BookingDraft } from "@/lib/booking/draft";
 import type { BookingClient } from "@/lib/data/booking-client";
+import type { EscrowOffer, EscrowSummary } from "@/lib/escrow/service";
 import { BookingSuccess } from "./booking-success";
+import { EscrowDepositNotice } from "./escrow-deposit";
 
 const STEPS = ["Prestation", "Praticien", "Créneau", "Confirmation"];
 
@@ -71,9 +73,20 @@ function getPackPrice(pack: PublicSalon["packs"][number], centerId: string): num
 }
 
 // F3.3 — Réservation en ligne en 4 étapes (cahier des charges §7 : 4 étapes maximum).
-export type BookingDone = { bookingId: string; start: string; manageUrl: string; staffName: string; totalTnd: number };
+export type BookingDone = { bookingId: string; start: string; manageUrl: string; staffName: string; totalTnd: number; escrow: EscrowSummary | null };
 
-export function BookingWizard({ salon, client, draft }: { salon: PublicSalon; client: BookingClient; draft: BookingDraft | null }) {
+// escrow : centres qui utilisent l'acompte sécurisé par la blockchain (SalonEscrow), avec leur acompte.
+export function BookingWizard({
+  salon,
+  client,
+  draft,
+  escrow = {},
+}: {
+  salon: PublicSalon;
+  client: BookingClient;
+  draft: BookingDraft | null;
+  escrow?: Record<string, EscrowOffer>;
+}) {
   const { t, lang } = useI18n();
   // Reprise après connexion / inscription : directement à l'étape de confirmation.
   const [step, setStep] = useState(draft ? 3 : 0);
@@ -89,6 +102,7 @@ export function BookingWizard({ salon, client, draft }: { salon: PublicSalon; cl
   const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
 
   const center = salon.centers.find((c) => c.id === choice.centerId)!;
+  const escrowOffer = escrow[choice.centerId] ?? null;
   const selection = useMemo(
     () => ({ serviceIds: choice.serviceIds, packId: choice.packId, selectedOptions: choice.selectedOptions }),
     [choice.serviceIds, choice.packId, choice.selectedOptions],
@@ -185,6 +199,7 @@ export function BookingWizard({ salon, client, draft }: { salon: PublicSalon; cl
               appliedPromo={appliedPromo}
               setAppliedPromo={setAppliedPromo}
               viaChatbot={viaChatbot}
+              escrowOffer={escrowOffer}
               onDone={setDone}
             />
           )}
@@ -254,7 +269,11 @@ export function BookingWizard({ salon, client, draft }: { salon: PublicSalon; cl
             </div>
           </div>
         )}
-        <p className="mt-3 text-[11px] text-white/40">{t("Paiement en ligne ou au salon. Annulation gratuite jusqu'à 2 h avant.")}</p>
+        <p className="mt-3 text-[11px] text-white/40">
+          {escrowOffer
+            ? t("Acompte sécurisé par la blockchain, remboursé si vous annulez 24 h ou plus avant.")
+            : t("Paiement en ligne ou au salon. Annulation gratuite jusqu'à 2 h avant.")}
+        </p>
       </aside>
 
       <BookingChat
@@ -783,6 +802,7 @@ function StepDetails({
   appliedPromo,
   setAppliedPromo,
   viaChatbot,
+  escrowOffer,
   onDone,
 }: {
   salon: PublicSalon;
@@ -794,9 +814,22 @@ function StepDetails({
   appliedPromo: AppliedPromo | null;
   setAppliedPromo: (p: AppliedPromo | null) => void;
   viaChatbot: boolean;
+  escrowOffer: EscrowOffer | null;
   onDone: (d: BookingDone) => void;
 }) {
   const { t, lang } = useI18n();
+  // Acompte sécurisé : vérifie sur la chaîne que le créneau du praticien choisi est encore libre (isSlotFree).
+  const [slotFree, setSlotFree] = useState<boolean | null | undefined>(undefined);
+  useEffect(() => {
+    if (!escrowOffer) return;
+    let active = true;
+    getEscrowSlotStatus({ slug: salon.slug, centerId: choice.centerId, staffId: choice.staffId, start: slot.start }).then((r) => {
+      if (active) setSlotFree(r.free);
+    });
+    return () => {
+      active = false;
+    };
+  }, [escrowOffer, salon.slug, choice.centerId, choice.staffId, slot.start]);
   const [form, setForm] = useState({ notes: "", remindersConsent: true, website: "" });
   const [error, setError] = useState<{ text: string; field?: string } | null>(null);
   const [pending, startTransition] = useTransition();
@@ -855,7 +888,7 @@ function StepDetails({
         viaChatbot,
         ...form,
       });
-      if (r.ok) onDone({ bookingId: r.bookingId, start: r.start, manageUrl: r.manageUrl, staffName: r.staffName, totalTnd: r.totalTnd });
+      if (r.ok) onDone({ bookingId: r.bookingId, start: r.start, manageUrl: r.manageUrl, staffName: r.staffName, totalTnd: r.totalTnd, escrow: r.escrow });
       else setError({ text: r.error, field: r.field });
     });
   };
@@ -930,16 +963,30 @@ function StepDetails({
         )}
       </div>
 
+      {escrowOffer && <EscrowDepositNotice offer={escrowOffer} slotFree={slotFree} />}
+
       <label className="mt-4 flex items-start gap-3 text-sm text-white/70">
         <input type="checkbox" checked={form.remindersConsent} onChange={(e) => setForm({ ...form, remindersConsent: e.target.checked })} className="mt-1 accent-rose-gold" />
         {t("J'accepte de recevoir la confirmation et un rappel par WhatsApp ou SMS.")}
       </label>
       {error && <p className="mt-3 rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-200 animate-shake">{t(error.text)}</p>}
       {client?.kind === "client" ? (
-        <button type="button" disabled={pending} onClick={submit} className="btn-shine mt-6 flex h-14 w-full items-center justify-center gap-2 rounded-2xl font-semibold text-plum-950 disabled:opacity-70">
-          {pending ? <span className="h-5 w-5 animate-spin rounded-full border-2 border-plum-950/30 border-t-plum-950" /> : <CheckIcon />}
-          {t("Confirmer ma réservation")}
-        </button>
+        <>
+          <button
+            type="button"
+            disabled={pending || (escrowOffer !== null && (!escrowOffer.depositTnd || slotFree === false))}
+            onClick={submit}
+            className="btn-shine mt-6 flex h-14 w-full items-center justify-center gap-2 rounded-2xl font-semibold text-plum-950 disabled:opacity-70"
+          >
+            {pending ? <span className="h-5 w-5 animate-spin rounded-full border-2 border-plum-950/30 border-t-plum-950" /> : <CheckIcon />}
+            {escrowOffer ? t("Confirmer et bloquer l'acompte") : t("Confirmer ma réservation")}
+          </button>
+          {pending && escrowOffer && (
+            <p className="mt-2 text-center text-xs text-white/50" role="status">
+              {t("Transaction en cours sur la blockchain… cela peut prendre quelques secondes.")}
+            </p>
+          )}
+        </>
       ) : client === null ? (
         <a href={`/login?next=${encodeURIComponent(resume)}`} className="btn-shine mt-6 flex h-14 w-full items-center justify-center gap-2 rounded-2xl font-semibold text-plum-950">
           {t("Se connecter pour confirmer")}

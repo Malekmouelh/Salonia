@@ -9,6 +9,7 @@ import { CalendarIcon, CheckIcon } from "@/components/ui/icons";
 import { fmtDay, fmtDuration, fmtMoney, fmtTime } from "@/lib/booking/format";
 import type { PublicSalon } from "@/lib/data/public-salon";
 import type { BookingDone } from "./booking-wizard";
+import { EscrowReceipt } from "./escrow-deposit";
 
 // Écran de confirmation : récapitulatif, ajout à l'agenda (.ics) et lien de gestion.
 export function BookingSuccess({
@@ -72,7 +73,8 @@ export function BookingSuccess({
         </div>
       </div>
 
-      {totalTnd > 0 && <PayOnline bookingId={done.bookingId} totalTnd={totalTnd} />}
+      {done.escrow && <EscrowReceipt escrow={done.escrow} />}
+      {totalTnd > 0 && <PayOnline bookingId={done.bookingId} totalTnd={totalTnd} depositSecured={Boolean(done.escrow)} />}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 animate-fade-up [animation-delay:0.25s]">
         <a
@@ -86,7 +88,11 @@ export function BookingSuccess({
           {t("Gérer ma réservation")}
         </a>
       </div>
-      <p className="mt-4 text-xs text-white/40">{t("Gardez ce lien : il permet d'annuler ou de reporter jusqu'à 2 h avant.")}</p>
+      <p className="mt-4 text-xs text-white/40">
+        {done.escrow
+          ? t("Retrouvez ce rendez-vous dans votre espace client pour l'annuler.")
+          : t("Gardez ce lien : il permet d'annuler ou de reporter jusqu'à 2 h avant.")}
+      </p>
       <Link href="/" className="mt-6 inline-block text-sm text-white/60 underline-offset-4 hover:text-white hover:underline">
         {t("Retour à l'accueil")}
       </Link>
@@ -95,7 +101,8 @@ export function BookingSuccess({
 }
 
 // Paiement en ligne (Module 6) : acompte de 30 % ou totalité, sinon règlement au salon.
-function PayOnline({ bookingId, totalTnd }: { bookingId: string; totalTnd: number }) {
+// depositSecured : l'acompte est déjà bloqué sur la blockchain (SalonEscrow), seul le paiement total reste proposé.
+function PayOnline({ bookingId, totalTnd, depositSecured }: { bookingId: string; totalTnd: number; depositSecured: boolean }) {
   const { t, lang } = useI18n();
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -114,10 +121,12 @@ function PayOnline({ bookingId, totalTnd }: { bookingId: string; totalTnd: numbe
     <div className="glass mt-5 rounded-[2rem] p-6 text-start animate-fade-up [animation-delay:0.22s]">
       <p className="font-medium text-white">{t("Régler maintenant ?")}</p>
       <p className="mt-1 text-sm text-white/55">{t("Paiement sécurisé par carte (CIB, Visa, Mastercard). Vous pouvez aussi payer au salon.")}</p>
-      <div className="mt-4 grid gap-2 sm:grid-cols-2">
-        <button type="button" disabled={pending} onClick={() => pay("DEPOSIT")} className="rounded-2xl border border-white/15 px-4 py-3 text-sm text-white transition hover:border-rose-gold/50 disabled:opacity-60">
-          {t("Payer l'acompte")} · <strong>{fmtMoney(deposit, lang)}</strong>
-        </button>
+      <div className={`mt-4 grid gap-2 ${depositSecured ? "" : "sm:grid-cols-2"}`}>
+        {!depositSecured && (
+          <button type="button" disabled={pending} onClick={() => pay("DEPOSIT")} className="rounded-2xl border border-white/15 px-4 py-3 text-sm text-white transition hover:border-rose-gold/50 disabled:opacity-60">
+            {t("Payer l'acompte")} · <strong>{fmtMoney(deposit, lang)}</strong>
+          </button>
+        )}
         <button type="button" disabled={pending} onClick={() => pay("PAYMENT")} className="btn-shine rounded-2xl px-4 py-3 text-sm font-semibold text-plum-950 disabled:opacity-60">
           {t("Tout payer")} · {fmtMoney(totalTnd, lang)}
         </button>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { payMyBooking } from "@/app/actions/client";
+import { EscrowBookingStatus, type EscrowInfo } from "@/components/booking/escrow-booking-status";
 import { STATUS_META } from "@/components/calendar/status";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { CalendarIcon, SparkleIcon } from "@/components/ui/icons";
@@ -109,6 +110,7 @@ type MyBooking = {
   salonSlug: string;
   totalTnd: number;
   dueTnd: number;
+  escrow: EscrowInfo | null;
 };
 
 // Compte client : ses rendez-vous à venir et passés.
@@ -146,6 +148,7 @@ export function MyBookings({ bookings, bookingUrl }: { bookings: MyBooking[]; bo
               </span>
               <span className={`rounded-full px-2.5 py-0.5 text-[11px] ${STATUS_META[b.status].chip}`}>{t(STATUS_META[b.status].label)}</span>
               {b.start > now && b.dueTnd > 0 && (b.status === "CONFIRMED" || b.status === "PENDING") && <PayButton bookingId={b.id} dueTnd={b.dueTnd} />}
+              {b.escrow && <EscrowBookingStatus bookingId={b.id} start={b.start} escrow={b.escrow} />}
             </li>
           ))}
         </ul>

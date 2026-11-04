@@ -13,6 +13,7 @@ Le cahier des charges annonce PostgreSQL/Prisma/FastAPI : écart NON validé par
 - `lib/data/` : lectures pour les pages. `lib/<domaine>/` : règles métier et tests `*.test.ts`.
 - `lib/models/` : schémas Mongoose (helper `model()`). `lib/enums.ts` : valeurs partagées, dont les types du journal d'audit.
 - `app/actions/<x>.ts` : Server Actions (`"use server"`), minces. `lib/dal.ts` : `getCurrentUser`, `requireRole`, `accessibleCenterIds`.
+- SalonEscrow (acompte blockchain, Module 3) : `lib/escrow/` (`chain.ts` seul envoi de transactions via viem, `service.ts` droits et base, `rules.ts` purs), `Booking.escrow`, `docs/salonescrow.md`. Clés `ESCROW_*` serveur uniquement, testnet uniquement.
 - F4 : `lib/team/` (`scope.ts` droits et centres, `service.ts` écritures, `schemas.ts` Zod, `hours.ts` / `timeoff.ts` / `planning.ts` purs), `lib/data/team.ts` et `lib/data/planning.ts` (lectures), `lib/models/team.ts` (`StaffTimeOff`), `components/team/`.
 
 ## Conventions de code
