@@ -1,5 +1,5 @@
 // Types partagés entre le serveur et les composants du Module 3 (données sérialisables).
-import type { BlockKind, BookingSource, BookingStatus } from "@/lib/enums";
+import type { BlockKind, BookingSource, BookingStatus, EscrowStatus } from "@/lib/enums";
 
 export type CalendarView = "day" | "week" | "month";
 
@@ -23,6 +23,8 @@ export type CalendarBooking = {
   notes: string | null;
   reminderSentAt: string | null;
   risk: RiskInfo | null;
+  // SalonEscrow : copie locale de l'acompte bloqué sur la chaîne (le statut à jour est relu à l'ouverture).
+  escrow: { depositTnd: string; status: EscrowStatus; refunded: boolean | null } | null;
 };
 
 export type CalendarBlock = {

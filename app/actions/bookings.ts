@@ -17,6 +17,9 @@ import { isPhone, normalizePhone } from "@/lib/definitions";
 import { BLOCK_KINDS, type BookingStatus } from "@/lib/enums";
 import { AvailabilityBlock, Booking, Customer, Notification, WaitlistEntry } from "@/lib/models/booking";
 import { Center, Organization } from "@/lib/models/core";
+import { ESCROW_SALON_LOCKED, EscrowError } from "@/lib/escrow/errors";
+import { readEscrowStatuses, settleEscrowBookingByStaff } from "@/lib/escrow/service";
+import type { EscrowStatus } from "@/lib/enums";
 
 // Server Actions du Module 3 côté salon (calendrier, statuts, blocages, rappels, liste d'attente).
 // Chaque action revérifie la session et l'accès au centre : le client n'est jamais cru sur parole.
@@ -125,6 +128,7 @@ export async function setBookingStatus(bookingId: string, status: BookingStatus)
   const user = await getCurrentUser();
   const booking = await loadBooking(user, bookingId);
   if (!booking) return { error: "Rendez-vous introuvable." };
+  if (booking.escrow) return { error: ESCROW_SALON_LOCKED };
   const from = booking.status as BookingStatus;
   if (!TRANSITIONS[from].includes(status)) return { error: "Changement de statut impossible." };
   if ((status === "COMPLETED" || status === "NO_SHOW") && booking.start > new Date()) {
@@ -156,11 +160,48 @@ export async function setBookingStatus(bookingId: string, status: BookingStatus)
   return { ok: true, message: labels[status] };
 }
 
+// ── SalonEscrow : acompte sécurisé par la blockchain (Module 3, Membre 1) ──
+// Statut relu sur la chaîne (getBooking) à l'ouverture d'un rendez-vous dans le calendrier.
+export async function getEscrowChainStatus(bookingId: string): Promise<{ status: EscrowStatus | null }> {
+  const user = await getCurrentUser();
+  const booking = await loadBooking(user, bookingId);
+  if (!booking?.escrow) return { status: null };
+  const statuses = await readEscrowStatuses([{ id: bookingId, network: booking.escrow.network, chainBookingId: booking.escrow.chainBookingId }]);
+  return { status: statuses[bookingId] ?? null };
+}
+
+// « Prestation réalisée » (markCompleted) ou « Client absent » (markNoShow) : l'acompte est versé au salon.
+// loadBooking vérifie le centre et, pour un STAFF, qu'il s'agit de son propre rendez-vous.
+export async function settleEscrowBooking(bookingId: string, outcome: "COMPLETED" | "NO_SHOW"): Promise<ActionResult> {
+  const user = await getCurrentUser();
+  if (outcome !== "COMPLETED" && outcome !== "NO_SHOW") return { error: "Demande invalide." };
+  const booking = await loadBooking(user, bookingId);
+  if (!booking) return { error: "Rendez-vous introuvable." };
+  try {
+    await settleEscrowBookingByStaff({ organizationId: user.organization!.id, bookingId, staffUserId: user.id, outcome });
+    await logEvent("ESCROW_SETTLED", {
+      userId: user.id,
+      organizationId: user.organization!.id,
+      detail: `${bookingId} · ${outcome === "COMPLETED" ? "prestation réalisée" : "absence"}`,
+    });
+    refresh();
+    return {
+      ok: true,
+      // Texte fixe (traduit côté écran) ; le montant figure dans la fiche du rendez-vous.
+      message: outcome === "COMPLETED" ? "Prestation validée : l'acompte est versé au salon." : "Absence enregistrée : l'acompte est versé au salon.",
+    };
+  } catch (e) {
+    if (e instanceof EscrowError) return { error: e.message };
+    throw e;
+  }
+}
+
 // ── Annulation (F3.5) : libère le créneau et propose de prévenir la liste d'attente ──
 export async function cancelBooking(bookingId: string, reason: string): Promise<ActionResult> {
   const user = await getCurrentUser();
   const booking = await loadBooking(user, bookingId);
   if (!booking) return { error: "Rendez-vous introuvable." };
+  if (booking.escrow) return { error: ESCROW_SALON_LOCKED };
   if (booking.status === "CANCELLED") return { error: "Déjà annulé." };
 
   booking.status = "CANCELLED";
@@ -203,6 +244,7 @@ export async function rescheduleBooking(input: { bookingId: string; day: string;
   const user = await getCurrentUser();
   const booking = await loadBooking(user, input.bookingId);
   if (!booking) return { error: "Rendez-vous introuvable." };
+  if (booking.escrow) return { error: ESCROW_SALON_LOCKED };
   const day = parseDayKey(input.day);
   if (!day || !/^\d{2}:\d{2}$/.test(input.time)) return { error: "Date ou heure invalide." };
 

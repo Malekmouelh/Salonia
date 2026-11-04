@@ -10,6 +10,7 @@ import { reminderMessage, whatsappLink } from "@/lib/booking/messages";
 import { dayKey, toLocal } from "@/lib/booking/time";
 import type { CalendarBooking, CalendarData } from "@/lib/booking/types";
 import type { BookingStatus } from "@/lib/enums";
+import { EscrowPanel } from "./escrow-panel";
 import { RISK_META, STATUS_META, inputClass, labelClass } from "./status";
 
 export function BookingDrawer({
@@ -131,6 +132,17 @@ export function BookingDrawer({
           </div>
         </div>
 
+        {/* SalonEscrow : acompte sur la blockchain, statut et règlement par le staff. */}
+        {b.escrow && (
+          <EscrowPanel
+            booking={b}
+            onDone={(r) => {
+              onResult(r);
+              onClose();
+            }}
+          />
+        )}
+
         {mode === "view" && (
           <div className="grid gap-2">
             {!isPast && (b.status === "CONFIRMED" || b.status === "PENDING") && (
@@ -144,35 +156,38 @@ export function BookingDrawer({
                 {b.reminderSentAt && <span className="text-xs text-white/40">· {t("rappel auto envoyé")}</span>}
               </a>
             )}
-            <div className="grid grid-cols-2 gap-2">
-              {b.status === "PENDING" && (
-                <ActionButton onClick={() => setStatus("CONFIRMED")} disabled={pending} tone="ok">{t("Confirmer")}</ActionButton>
-              )}
-              {isPast && (b.status === "CONFIRMED" || b.status === "PENDING") && (
-                <>
-                  <ActionButton onClick={() => setStatus("COMPLETED")} disabled={pending} tone="ok">{t("Terminé")}</ActionButton>
-                  <ActionButton onClick={() => setStatus("NO_SHOW")} disabled={pending} tone="danger">{t("Absent")}</ActionButton>
-                </>
-              )}
-              {(b.status === "NO_SHOW" || b.status === "COMPLETED" || b.status === "CANCELLED") && (
-                <ActionButton onClick={() => setStatus("CONFIRMED")} disabled={pending}>{t("Rétablir")}</ActionButton>
-              )}
-              {!isPast && b.status !== "CANCELLED" && (
-                <>
-                  <ActionButton
-                    onClick={() => {
-                      setNewDay(dayKey(new Date(b.start)));
-                      setNewTime(`${String(local.hour).padStart(2, "0")}:${String(local.minute).padStart(2, "0")}`);
-                      setNewStaff(b.staffId);
-                      setMode("reschedule");
-                    }}
-                  >
-                    {t("Reporter")}
-                  </ActionButton>
-                  <ActionButton onClick={() => setMode("cancel")} tone="danger">{t("Annuler")}</ActionButton>
-                </>
-              )}
-            </div>
+            {/* Rendez-vous avec acompte sécurisé : ni statut manuel, ni report, ni annulation par le salon. */}
+            {!b.escrow && (
+              <div className="grid grid-cols-2 gap-2">
+                {b.status === "PENDING" && (
+                  <ActionButton onClick={() => setStatus("CONFIRMED")} disabled={pending} tone="ok">{t("Confirmer")}</ActionButton>
+                )}
+                {isPast && (b.status === "CONFIRMED" || b.status === "PENDING") && (
+                  <>
+                    <ActionButton onClick={() => setStatus("COMPLETED")} disabled={pending} tone="ok">{t("Terminé")}</ActionButton>
+                    <ActionButton onClick={() => setStatus("NO_SHOW")} disabled={pending} tone="danger">{t("Absent")}</ActionButton>
+                  </>
+                )}
+                {(b.status === "NO_SHOW" || b.status === "COMPLETED" || b.status === "CANCELLED") && (
+                  <ActionButton onClick={() => setStatus("CONFIRMED")} disabled={pending}>{t("Rétablir")}</ActionButton>
+                )}
+                {!isPast && b.status !== "CANCELLED" && (
+                  <>
+                    <ActionButton
+                      onClick={() => {
+                        setNewDay(dayKey(new Date(b.start)));
+                        setNewTime(`${String(local.hour).padStart(2, "0")}:${String(local.minute).padStart(2, "0")}`);
+                        setNewStaff(b.staffId);
+                        setMode("reschedule");
+                      }}
+                    >
+                      {t("Reporter")}
+                    </ActionButton>
+                    <ActionButton onClick={() => setMode("cancel")} tone="danger">{t("Annuler")}</ActionButton>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
 

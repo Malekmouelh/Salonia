@@ -35,6 +35,8 @@ const CenterSchema = new Schema(
     photos: [{ type: String }],
     // { lundi: "09:00-19:00", dimanche: null, ... }
     openingHours: { type: Schema.Types.Mixed, default: null },
+    // SalonEscrow : numéro du centre sur la chaîne (uint32), attribué une fois par lib/escrow/ids.ts.
+    chainId: { type: Number, unique: true, sparse: true },
   },
   { timestamps: true },
 );
@@ -59,6 +61,11 @@ const UserSchema = new Schema(
     skills: [{ type: String, trim: true }],
     // Horaires individuels, même format que Center.openingHours. null = suit les horaires du centre.
     workingHours: { type: Schema.Types.Mixed, default: null },
+    // SalonEscrow (attribués une fois par lib/escrow/ids.ts, jamais de clé en base) :
+    // chainId = numéro du praticien sur la chaîne (uint32, STAFF) ;
+    // walletIndex = index de dérivation du wallet géré par le serveur (tout compte qui signe).
+    chainId: { type: Number, unique: true, sparse: true },
+    walletIndex: { type: Number, unique: true, sparse: true },
   },
   { timestamps: true },
 );

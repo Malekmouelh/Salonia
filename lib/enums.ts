@@ -19,6 +19,8 @@ export const AUTH_EVENT_TYPES = [
   "PROMOTION_CREATED", "PROMOTION_UPDATED", "PROMOTION_DELETED",
   // Module 3
   "BOOKING_CREATED", "BOOKING_CANCELLED", "BOOKING_RESCHEDULED", "REMINDERS_SENT",
+  // Module 3 : SalonEscrow (acompte réglé sur la blockchain par le staff)
+  "ESCROW_SETTLED",
   // Module 6
   "PAYMENT_RECORDED", "PAYMENT_REFUNDED", "INVOICE_ISSUED", "INVOICE_CANCELLED",
   "EXPENSE_CREATED", "EXPENSE_DELETED", "FINANCE_EXPORTED",
@@ -51,6 +53,11 @@ export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 
 export const BOOKING_SOURCES = ["ONLINE", "STAFF", "CHATBOT", "WAITLIST"] as const;
 export type BookingSource = (typeof BOOKING_SOURCES)[number];
+
+// SalonEscrow : statut de l'acompte sur la chaîne. L'ordre suit l'enum BookingStatus de SlotBooking.sol
+// (0 None, 1 Confirmed, 2 Cancelled, 3 Completed, 4 NoShow) : ne pas le changer.
+export const ESCROW_STATUSES = ["NONE", "CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW"] as const;
+export type EscrowStatus = (typeof ESCROW_STATUSES)[number];
 
 export const BLOCK_KINDS = ["BREAK", "CLOSURE", "BLOCK"] as const;
 export type BlockKind = (typeof BLOCK_KINDS)[number];

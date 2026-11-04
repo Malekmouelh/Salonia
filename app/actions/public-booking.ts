@@ -12,6 +12,9 @@ import { Promotion } from "@/lib/models/catalog";
 import { Organization } from "@/lib/models/core";
 import { getBookingClient } from "@/lib/data/booking-client";
 import { isObjectId } from "@/lib/data/public-salon";
+import { ESCROW_CLIENT_ONLY, EscrowError } from "@/lib/escrow/errors";
+import { isEscrowSlot } from "@/lib/escrow/rules";
+import { escrowCenterChainId, isSlotFreeOnChain, lockDepositForBooking, rollbackUnpaidBooking, type EscrowSummary } from "@/lib/escrow/service";
 
 // Actions publiques de réservation (F3.3, F3.5) : appelées par la page /reserver/[slug]
 // et le lien « gérer ma réservation ». Pas de session : tout est revalidé côté serveur.
@@ -74,6 +77,10 @@ export async function getPublicSlots(input: {
       durationMinutes: duration,
       staffId: isObjectId(input.staffId) ? input.staffId : null,
     });
+    // Acompte sécurisé : le contrat n'accepte que des heures alignées sur 30 minutes.
+    if ((await escrowCenterChainId(org.id, input.centerId)) !== null) {
+      return { slots: slots.filter((s) => isEscrowSlot(new Date(s.start))) };
+    }
     return { slots };
   } catch (e) {
     if (e instanceof BookingError) return { slots: [], error: e.message };
@@ -136,8 +143,21 @@ const OnlineBookingSchema = z.object({
 });
 
 export type OnlineBookingResult =
-  | { ok: true; bookingId: string; manageUrl: string; start: string; staffName: string; totalTnd: number }
+  | { ok: true; bookingId: string; manageUrl: string; start: string; staffName: string; totalTnd: number; escrow: EscrowSummary | null }
   | { ok?: false; error: string; field?: string };
+
+// Acompte sécurisé : le créneau choisi est-il encore libre sur la chaîne (isSlotFree) ?
+// null : centre sans acompte sécurisé, ou « peu importe le praticien » (vérifié à la création).
+export async function getEscrowSlotStatus(input: { slug: string; centerId: string; staffId: string | null; start: string }): Promise<{ free: boolean | null }> {
+  const org = await orgBySlug(input.slug);
+  const start = new Date(input.start);
+  if (!org || !isObjectId(input.centerId) || !isObjectId(input.staffId) || Number.isNaN(start.getTime())) return { free: null };
+  try {
+    return { free: await isSlotFreeOnChain({ organizationId: org.id, centerId: input.centerId, staffId: input.staffId!, start }) };
+  } catch {
+    return { free: null };
+  }
+}
 
 export async function createOnlineBooking(input: z.input<typeof OnlineBookingSchema>): Promise<OnlineBookingResult> {
   const parsed = OnlineBookingSchema.safeParse(input);
@@ -162,6 +182,9 @@ export async function createOnlineBooking(input: z.input<typeof OnlineBookingSch
   if (!org) return { error: "Salon introuvable." };
   const start = new Date(d.start);
   if (start < new Date() || start > addDays(new Date(), MAX_DAYS_AHEAD)) return { error: "Ce créneau n'est plus disponible." };
+
+  const escrowCenter = (await escrowCenterChainId(org.id, d.centerId)) !== null;
+  if (escrowCenter && !isEscrowSlot(start)) return { error: "Avec l'acompte sécurisé, choisissez un créneau à l'heure pile ou à la demie." };
 
   try {
     const selection = toSelection(d.selection);
@@ -194,6 +217,20 @@ export async function createOnlineBooking(input: z.input<typeof OnlineBookingSch
       notes: d.notes,
       baseUrl: await baseUrl(),
     });
+
+    // Acompte sécurisé : le rendez-vous est d'abord enregistré (la base reste juge des chevauchements),
+    // puis l'acompte est bloqué sur la chaîne. Si la transaction échoue, le rendez-vous est retiré.
+    let escrow: EscrowSummary | null = null;
+    if (escrowCenter) {
+      try {
+        escrow = await lockDepositForBooking({ organizationId: org.id, bookingId: String(booking._id), clientUserId: client.id });
+      } catch (e) {
+        await rollbackUnpaidBooking(org.id, String(booking._id));
+        if (e instanceof EscrowError) return { error: e.message };
+        throw e;
+      }
+    }
+
     const staff = await Booking.findById(booking._id).populate<{ staffId: { firstName: string } }>("staffId", "firstName").lean();
     return {
       ok: true,
@@ -202,9 +239,10 @@ export async function createOnlineBooking(input: z.input<typeof OnlineBookingSch
       start: booking.start.toISOString(),
       staffName: staff?.staffId.firstName ?? "",
       totalTnd: booking.totalTnd,
+      escrow,
     };
   } catch (e) {
-    if (e instanceof BookingError) return { error: e.message };
+    if (e instanceof BookingError || e instanceof EscrowError) return { error: e.message };
     throw e;
   }
 }
@@ -319,6 +357,7 @@ async function bookingByToken(token: string) {
 export async function cancelByToken(token: string): Promise<{ ok?: true; error?: string }> {
   const booking = await bookingByToken(token);
   if (!booking || booking.status === "CANCELLED") return { error: "Réservation introuvable ou déjà annulée." };
+  if (booking.escrow) return { error: ESCROW_CLIENT_ONLY };
   if (booking.start.getTime() - Date.now() < CANCEL_DEADLINE_H * 3_600_000) {
     return { error: `L'annulation en ligne est possible jusqu'à ${CANCEL_DEADLINE_H} h avant le rendez-vous. Appelez le salon.` };
   }
@@ -332,6 +371,7 @@ export async function cancelByToken(token: string): Promise<{ ok?: true; error?:
 export async function rescheduleByToken(token: string, startIso: string): Promise<{ ok?: true; error?: string }> {
   const booking = await bookingByToken(token);
   if (!booking || booking.status === "CANCELLED") return { error: "Réservation introuvable." };
+  if (booking.escrow) return { error: ESCROW_CLIENT_ONLY };
   if (booking.start.getTime() - Date.now() < CANCEL_DEADLINE_H * 3_600_000) {
     return { error: `Le report en ligne est possible jusqu'à ${CANCEL_DEADLINE_H} h avant le rendez-vous.` };
   }

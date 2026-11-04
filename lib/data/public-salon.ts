@@ -93,6 +93,8 @@ export async function getBookingByToken(token: string) {
     totalTnd: booking.totalTnd,
     staffId: String(booking.staffId),
     durationMinutes: (booking.end.getTime() - booking.start.getTime()) / 60000,
+    // SalonEscrow : un rendez-vous avec acompte sécurisé ne se gère que depuis l'espace client.
+    hasEscrow: Boolean(booking.escrow),
   };
 }
 
