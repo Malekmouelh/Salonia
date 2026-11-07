@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { payMyBooking } from "@/app/actions/client";
+import type { EscrowWebConfig } from "@/app/actions/wallet";
 import { EscrowBookingStatus, type EscrowInfo } from "@/components/booking/escrow-booking-status";
 import { STATUS_META } from "@/components/calendar/status";
 import { useI18n } from "@/components/i18n/i18n-provider";
@@ -114,7 +115,15 @@ type MyBooking = {
 };
 
 // Compte client : ses rendez-vous à venir et passés.
-export function MyBookings({ bookings, bookingUrl }: { bookings: MyBooking[]; bookingUrl: string | null }) {
+export function MyBookings({
+  bookings,
+  bookingUrl,
+  escrowWeb = null,
+}: {
+  bookings: MyBooking[];
+  bookingUrl: string | null;
+  escrowWeb?: EscrowWebConfig | null;
+}) {
   const { t, lang } = useI18n();
   const now = new Date().toISOString();
   // À venir d'abord (du plus proche au plus lointain), puis l'historique (du plus récent au plus ancien).
@@ -148,7 +157,7 @@ export function MyBookings({ bookings, bookingUrl }: { bookings: MyBooking[]; bo
               </span>
               <span className={`rounded-full px-2.5 py-0.5 text-[11px] ${STATUS_META[b.status].chip}`}>{t(STATUS_META[b.status].label)}</span>
               {b.start > now && b.dueTnd > 0 && (b.status === "CONFIRMED" || b.status === "PENDING") && <PayButton bookingId={b.id} dueTnd={b.dueTnd} />}
-              {b.escrow && <EscrowBookingStatus bookingId={b.id} start={b.start} escrow={b.escrow} />}
+              {b.escrow && <EscrowBookingStatus bookingId={b.id} start={b.start} escrow={b.escrow} cfg={escrowWeb} />}
             </li>
           ))}
         </ul>

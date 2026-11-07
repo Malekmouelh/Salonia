@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { AuthCard } from "@/components/auth/auth-card";
 import { LoginForm, type DemoAccount } from "@/components/auth/login-form";
+import { MetaMaskSlot } from "./metamask-slot";
 
 export const metadata: Metadata = { title: "Connexion" };
 
@@ -26,6 +27,12 @@ export default function LoginPage() {
       <Suspense>
         <LoginForm demoAccounts={DEMO_ACCOUNTS} />
       </Suspense>
+      {/* SalonEscrow : connexion par MetaMask (Sign-In With Ethereum), affichée si la blockchain est activée. */}
+      <div className="mt-6">
+        <Suspense>
+          <MetaMaskSlot />
+        </Suspense>
+      </div>
     </AuthCard>
   );
 }

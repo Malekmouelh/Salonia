@@ -22,6 +22,7 @@ const LINKS = [
   { href: "/dashboard/finances/caisse", label: "Caisse", icon: WalletIcon, roles: ["STAFF"] },
   { href: "/dashboard/mes-paiements", label: "Mes paiements", icon: WalletIcon, roles: ["CLIENT"] },
   { href: "/dashboard/assistant", label: "Assistant IA", icon: WandIcon, roles: ["OWNER"] },
+  { href: "/dashboard/blockchain", label: "Blockchain", icon: LayersIcon, roles: ["OWNER", "SUPER_ADMIN"] },
   { href: "/dashboard/salons", label: "Trouver un salon", icon: StoreIcon, roles: ["CLIENT"] },
 ] as const;
 

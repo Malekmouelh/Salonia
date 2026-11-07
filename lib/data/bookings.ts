@@ -421,6 +421,7 @@ export async function getMyBookings(user: CurrentUser) {
       ? {
           depositTnd: unitsToTnd(b.escrow.depositUnits),
           chainBookingId: b.escrow.chainBookingId,
+          clientAddress: b.escrow.clientAddress,
           status: chainStatuses[String(b._id)] ?? b.escrow.status!,
           fromChain: chainStatuses[String(b._id)] != null,
           refunded: b.escrow.refunded ?? null,

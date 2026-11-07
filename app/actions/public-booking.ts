@@ -10,11 +10,24 @@ import { isPhone, normalizePhone } from "@/lib/definitions";
 import { Booking, WaitlistEntry } from "@/lib/models/booking";
 import { Promotion } from "@/lib/models/catalog";
 import { Organization } from "@/lib/models/core";
+import { logEvent } from "@/lib/audit";
 import { getBookingClient } from "@/lib/data/booking-client";
 import { isObjectId } from "@/lib/data/public-salon";
 import { ESCROW_CLIENT_ONLY, EscrowError } from "@/lib/escrow/errors";
 import { isEscrowSlot } from "@/lib/escrow/rules";
-import { escrowCenterChainId, isSlotFreeOnChain, lockDepositForBooking, rollbackUnpaidBooking, type EscrowSummary } from "@/lib/escrow/service";
+import {
+  NO_WALLET,
+  abandonEscrowIntent,
+  confirmEscrowFromTx,
+  escrowCenterChainId,
+  isSlotFreeOnChain,
+  prepareEscrowIntent,
+  releaseExpiredHolds,
+  rollbackUnpaidBooking,
+  type EscrowIntent,
+  type EscrowSummary,
+} from "@/lib/escrow/service";
+import { getLinkedWallet } from "@/lib/wallet/service";
 
 // Actions publiques de réservation (F3.3, F3.5) : appelées par la page /reserver/[slug]
 // et le lien « gérer ma réservation ». Pas de session : tout est revalidé côté serveur.
@@ -67,6 +80,8 @@ export async function getPublicSlots(input: {
   if (!org || !day || !isObjectId(input.centerId)) return { slots: [], error: "Demande invalide." };
   if (day > addDays(new Date(), MAX_DAYS_AHEAD)) return { slots: [] };
   try {
+    // Créneaux tenus en attente d'une transaction MetaMask qui n'est jamais venue : libérés avant le calcul.
+    await releaseExpiredHolds();
     const selection = SelectionSchema.safeParse(input.selection);
     if (!selection.success) return { slots: [], error: selection.error.issues[0]?.message ?? "Demande invalide." };
     const { duration } = await resolveItems(org.id, toSelection(selection.data), input.centerId);
@@ -143,7 +158,16 @@ const OnlineBookingSchema = z.object({
 });
 
 export type OnlineBookingResult =
-  | { ok: true; bookingId: string; manageUrl: string; start: string; staffName: string; totalTnd: number; escrow: EscrowSummary | null }
+  | {
+      ok: true;
+      bookingId: string;
+      manageUrl: string;
+      start: string;
+      staffName: string;
+      totalTnd: number;
+      // Acompte sécurisé : ce que MetaMask doit signer ; le rendez-vous reste PENDING jusqu'à confirmEscrowBooking.
+      escrowIntent: EscrowIntent | null;
+    }
   | { ok?: false; error: string; field?: string };
 
 // Acompte sécurisé : le créneau choisi est-il encore libre sur la chaîne (isSlotFree) ?
@@ -185,6 +209,9 @@ export async function createOnlineBooking(input: z.input<typeof OnlineBookingSch
 
   const escrowCenter = (await escrowCenterChainId(org.id, d.centerId)) !== null;
   if (escrowCenter && !isEscrowSlot(start)) return { error: "Avec l'acompte sécurisé, choisissez un créneau à l'heure pile ou à la demie." };
+  // Acompte sécurisé : MetaMask obligatoire (le client signe lui-même ses transactions).
+  if (escrowCenter && !(await getLinkedWallet(client.id))) return { error: NO_WALLET, field: "wallet" };
+  if (escrowCenter) await releaseExpiredHolds();
 
   try {
     const selection = toSelection(d.selection);
@@ -216,14 +243,16 @@ export async function createOnlineBooking(input: z.input<typeof OnlineBookingSch
       source: d.viaChatbot ? "CHATBOT" : "ONLINE",
       notes: d.notes,
       baseUrl: await baseUrl(),
+      // Acompte sécurisé : en attente de la transaction MetaMask du client.
+      status: escrowCenter ? "PENDING" : "CONFIRMED",
     });
 
-    // Acompte sécurisé : le rendez-vous est d'abord enregistré (la base reste juge des chevauchements),
-    // puis l'acompte est bloqué sur la chaîne. Si la transaction échoue, le rendez-vous est retiré.
-    let escrow: EscrowSummary | null = null;
+    // Acompte sécurisé : le rendez-vous est d'abord tenu (la base reste juge des chevauchements), puis le
+    // navigateur reçoit ce que MetaMask doit signer. Si la préparation échoue, le rendez-vous est retiré.
+    let escrowIntent: EscrowIntent | null = null;
     if (escrowCenter) {
       try {
-        escrow = await lockDepositForBooking({ organizationId: org.id, bookingId: String(booking._id), clientUserId: client.id });
+        escrowIntent = await prepareEscrowIntent({ organizationId: org.id, bookingId: String(booking._id), clientUserId: client.id });
       } catch (e) {
         await rollbackUnpaidBooking(org.id, String(booking._id));
         if (e instanceof EscrowError) return { error: e.message };
@@ -239,12 +268,35 @@ export async function createOnlineBooking(input: z.input<typeof OnlineBookingSch
       start: booking.start.toISOString(),
       staffName: staff?.staffId.firstName ?? "",
       totalTnd: booking.totalTnd,
-      escrow,
+      escrowIntent,
     };
   } catch (e) {
     if (e instanceof BookingError || e instanceof EscrowError) return { error: e.message };
     throw e;
   }
+}
+
+// Acompte sécurisé : MetaMask a envoyé createBooking ; le serveur relit la transaction et confirme le rendez-vous.
+export async function confirmEscrowBooking(input: { bookingId: string; txHash: string }): Promise<{ ok: true; escrow: EscrowSummary } | { ok: false; error: string }> {
+  const client = await getBookingClient();
+  if (client?.kind !== "client") return { ok: false, error: "Connectez-vous avec votre compte client." };
+  try {
+    const r = await confirmEscrowFromTx({ clientUserId: client.id, bookingId: String(input?.bookingId ?? ""), txHash: String(input?.txHash ?? "") });
+    await logEvent("BOOKING_CREATED", { userId: client.id, organizationId: r.organizationId, detail: `${input.bookingId} · acompte blockchain n°${r.chainBookingId}` });
+    return { ok: true, escrow: { network: r.network, chainBookingId: r.chainBookingId, depositTnd: r.depositTnd, txHash: r.txHash } };
+  } catch (e) {
+    if (e instanceof EscrowError) return { ok: false, error: e.message };
+    throw e;
+  }
+}
+
+// Acompte sécurisé : le client a refusé dans MetaMask ou la transaction a échoué ; le créneau est libéré.
+export async function abandonEscrowBooking(bookingId: string): Promise<{ ok: true }> {
+  const client = await getBookingClient();
+  if (client?.kind === "client") {
+    await abandonEscrowIntent({ clientUserId: client.id, bookingId: String(bookingId ?? "") }).catch(() => {});
+  }
+  return { ok: true };
 }
 
 // Validation d'un code promo en temps réel lors du parcours de réservation.
