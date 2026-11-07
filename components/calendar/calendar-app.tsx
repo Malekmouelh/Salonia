@@ -14,6 +14,7 @@ import { BlockDetail, BlockForm } from "./block-form";
 import { BookingDrawer } from "./booking-drawer";
 import { BookingForm, type BookingDraft } from "./booking-form";
 import { MonthGrid } from "./month-grid";
+import { MonthPicker } from "./month-picker";
 import { TimeGrid } from "./time-grid";
 
 type WaitlistItem = { id: string; day: string; status: "WAITING" | "OFFERED"; customer: { id: string; name: string; phone: string }; service: string };
@@ -159,7 +160,7 @@ export function CalendarApp({
   return (
     <div className="mt-6 space-y-5">
       {/* Barre d'outils */}
-      <div className="flex flex-wrap items-center justify-between gap-3 animate-fade-up">
+      <div className="relative z-30 flex flex-wrap items-center justify-between gap-3 animate-fade-up">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1 rounded-2xl border border-white/10 bg-white/[0.04] p-1">
             <button type="button" onClick={() => shift(-1)} className="grid h-9 w-9 place-items-center rounded-xl text-white/70 hover:bg-white/10 hover:text-white" aria-label={t("Précédent")}>
@@ -172,7 +173,7 @@ export function CalendarApp({
               <ArrowRightIcon width={18} height={18} className="rtl:-scale-x-100" />
             </button>
           </div>
-          <h1 className="font-display text-2xl capitalize text-white sm:text-3xl">{title}</h1>
+          <MonthPicker title={title} date={data.date} onSelect={(day) => go({ view: "month", date: day })} />
           {navigating && <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-champagne" />}
         </div>
 
