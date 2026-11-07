@@ -191,6 +191,18 @@ export async function bookingCreatedInTx(txHash: Hash) {
   };
 }
 
+// La transaction existe-t-elle sur la chaîne actuelle ? (false après un redémarrage du nœud Hardhat local)
+export async function transactionExists(txHash: Hash) {
+  const config = requireEscrowConfig();
+  try {
+    await publicClient(config).getTransactionReceipt({ hash: txHash });
+    return true;
+  } catch (error) {
+    if (error instanceof Error && /could not be found|not found/i.test(error.message)) return false;
+    throw toEscrowError(error);
+  }
+}
+
 // Réservations créées sur le contrat par un wallet (événement BookingCreated, client indexé), avec leur transaction.
 // Sur un réseau public, on se limite aux ~7 derniers jours de blocs (les fournisseurs RPC bornent les recherches).
 export async function bookingsCreatedBy(client: Address) {

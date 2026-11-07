@@ -41,6 +41,11 @@ async function main() {
     console.log(`  ${center.name} → centre n°${chainId}, acompte ${depositArg} TND`);
   }
 
+  // Nouvelle chaîne : les acomptes de l'ancienne (transactions disparues) sont détachés de leurs rendez-vous.
+  const { detachStaleLocalEscrows } = await import("../lib/escrow/service");
+  const detached = await detachStaleLocalEscrows();
+  if (detached) console.log(`  ${detached} acompte(s) de l'ancienne chaîne détaché(s) de leur rendez-vous`);
+
   writeFileSync(".env.escrow.local", Object.entries(env).map(([k, v]) => `${k}="${v}"`).join("\n") + "\n");
   console.log(`${org.name} : ${centers.length} centre(s) configuré(s). Variables écrites dans .env.escrow.local`);
   await mongoose.disconnect();

@@ -205,8 +205,8 @@ export async function recoverEscrowHold(p: { clientUserId: string; bookingId: st
   const created = await chain.bookingsCreatedBy(wallet as `0x${string}`);
   for (const c of created) {
     if (c.centerId !== centerChainId || c.practitionerId !== staff?.chainId || c.startTime !== startTime) continue;
-    // Déjà rattachée à un autre rendez-vous, ou plus active sur la chaîne : on ne la réutilise pas.
-    if (await Booking.exists({ "escrow.network": config.network, "escrow.chainBookingId": c.chainBookingId })) continue;
+    // Déjà rattachée à un autre rendez-vous (même transaction), ou plus active sur la chaîne : on ne la réutilise pas.
+    if (await Booking.exists({ "escrow.createTxHash": c.txHash })) continue;
     if ((await chain.getBooking(c.chainBookingId)).status !== "CONFIRMED") continue;
     return confirmEscrowFromTx({ clientUserId: p.clientUserId, bookingId: p.bookingId, txHash: c.txHash });
   }
@@ -235,6 +235,24 @@ export async function releaseExpiredHolds(now: Date = new Date()) {
     released++;
   }
   return released;
+}
+
+// Démonstration locale : après un redémarrage du nœud Hardhat, la numérotation des réservations repart de 1.
+// Les acomptes enregistrés sur l'ANCIENNE chaîne (leur transaction n'existe plus) sont détachés de leur rendez-vous,
+// sinon leurs numéros bloqueraient les nouvelles réservations (index unique réseau + numéro). Hardhat uniquement.
+export async function detachStaleLocalEscrows() {
+  const config = escrowConfig();
+  if (!config || config.network !== "hardhat") return 0;
+  await connectDB();
+  const rows = await Booking.find({ "escrow.network": "hardhat" }).select("escrow.createTxHash").lean();
+  let detached = 0;
+  for (const r of rows) {
+    const tx = r.escrow?.createTxHash as `0x${string}` | undefined;
+    if (tx && (await chain.transactionExists(tx))) continue;
+    await Booking.updateOne({ _id: r._id }, { $unset: { escrow: 1 } });
+    detached++;
+  }
+  return detached;
 }
 
 // Le client relance le même créneau : sa réservation en attente (même centre, même heure) est réutilisée au lieu
