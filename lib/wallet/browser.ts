@@ -35,6 +35,16 @@ function provider(): EIP1193Provider {
   return window.ethereum!;
 }
 
+// Compte actuellement sélectionné dans MetaMask (lecture seule, sans fenêtre de permission), et ses changements.
+export function watchActiveAccount(onChange: (address: string | null) => void) {
+  if (!hasMetaMask()) return () => {};
+  const eth = window.ethereum!;
+  const handle = (accounts: unknown) => onChange(Array.isArray(accounts) && typeof accounts[0] === "string" ? accounts[0] : null);
+  eth.request({ method: "eth_accounts" }).then(handle).catch(() => onChange(null));
+  eth.on?.("accountsChanged", handle as never);
+  return () => eth.removeListener?.("accountsChanged", handle as never);
+}
+
 function chainFor(cfg: EscrowWebConfig) {
   if (cfg.network === "sepolia") return sepolia;
   return defineChain({ ...hardhat, rpcUrls: { default: { http: [cfg.rpcUrl ?? "http://127.0.0.1:8545"] } } });

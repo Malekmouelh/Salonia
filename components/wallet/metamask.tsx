@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useState, useSyncExternalStore, useTransition } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore, useTransition } from "react";
 import {
   getLinkNonce,
   getLoginNonce,
@@ -16,7 +16,7 @@ import {
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Alert } from "@/components/ui/form";
 import { AlertIcon, CheckIcon, CopyIcon, LockIcon, PlusIcon, ShieldIcon, SparkleIcon, TagIcon, WalletIcon } from "@/components/ui/icons";
-import { MetaMaskError, faucetWithMetaMask, hasMetaMask, metaMaskMessage, signInMessage, watchMockTnd, withdrawWithMetaMask } from "@/lib/wallet/browser";
+import { MetaMaskError, faucetWithMetaMask, hasMetaMask, metaMaskMessage, signInMessage, watchActiveAccount, watchMockTnd, withdrawWithMetaMask } from "@/lib/wallet/browser";
 
 // SalonEscrow + MetaMask : connexion (Sign-In With Ethereum), liaison du wallet au compte Salonia et gestion
 // de la monnaie de test. Seule la signature quitte le navigateur, jamais la clé privée.
@@ -151,7 +151,9 @@ export function WalletCard({ cfg, initial }: { cfg: EscrowWebConfig | null; init
   const [busy, setBusy] = useState<WalletAction | null>(null);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [active, setActive] = useState<string | null>(null); // compte sélectionné dans MetaMask
   const [, start] = useTransition();
+  useEffect(() => watchActiveAccount(setActive), []);
   if (!cfg) return null;
 
   const refresh = async () => setInfo(await getMyWalletInfo());
@@ -378,6 +380,16 @@ export function WalletCard({ cfg, initial }: { cfg: EscrowWebConfig | null; init
           </>
         )}
 
+        {/* Le compte choisi dans MetaMask n'est pas le wallet relié : les transactions échoueraient. */}
+        {info.address && active && active.toLowerCase() !== info.address.toLowerCase() && (
+          <p role="alert" className="mt-4 flex items-start gap-2 rounded-xl border border-amber-300/40 bg-amber-300/10 px-3 py-2.5 text-sm text-amber-100">
+            <AlertIcon width={16} height={16} className="mt-0.5 shrink-0" />
+            <span>
+              {t("MetaMask utilise un autre compte")} (<bdi className="font-mono">{short(active)}</bdi>). {t("Sélectionnez dans MetaMask le compte relié")} :{" "}
+              <bdi className="font-mono font-semibold">{short(info.address)}</bdi>.
+            </span>
+          </p>
+        )}
         {busy !== null && busy !== "watch" && (
           <p role="status" className="mt-4 flex items-center gap-2 rounded-xl border border-[#f6851b]/30 bg-[#f6851b]/10 px-3 py-2 text-xs text-[#ffcf9e]">
             <Spinner /> {t("Validez dans MetaMask…")}

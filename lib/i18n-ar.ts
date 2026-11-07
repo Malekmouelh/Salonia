@@ -1786,4 +1786,6 @@ export const AR: Record<string, string> = {
   "Retirer ce wallet de votre compte ?": "إزالة هذه المحفظة من حسابك؟",
   "Oui, retirer": "نعم، إزالة",
   "La blockchain de test a redémarré : dans MetaMask, ouvrez Paramètres → Avancé → « Effacer les données de l'onglet activité », puis réessayez.": "أُعيد تشغيل بلوكشين الاختبار: في MetaMask افتح الإعدادات ← متقدم ← «مسح بيانات علامة تبويب النشاط»، ثم أعد المحاولة.",
+  "MetaMask utilise un autre compte": "يستعمل MetaMask حسابًا آخر",
+  "Sélectionnez dans MetaMask le compte relié": "اختر في MetaMask الحساب المرتبط",
 };
