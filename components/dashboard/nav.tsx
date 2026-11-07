@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useI18n } from "@/components/i18n/i18n-provider";
+import { OfflineLinkHint } from "@/components/pwa/offline-link-hint";
 import { BoxIcon, CalendarIcon, ClockIcon, LayersIcon, PaletteIcon, SparkleIcon, StoreIcon, UserIcon, UsersIcon, WalletIcon, WandIcon } from "@/components/ui/icons";
 import type { Role } from "@/lib/enums";
 
@@ -26,7 +28,17 @@ const LINKS = [
 export function DashboardNav({ role }: { role: Role }) {
   const { t } = useI18n();
   const pathname = usePathname();
+  const router = useRouter();
   const links = LINKS.filter((l) => (l.roles as readonly string[]).includes(role));
+
+  // Le menu défile horizontalement : un lien hors de l'écran n'est pas préchargé par <Link>. On précharge
+  // la coquille de chaque page pour qu'elle reste ouvrable hors ligne (message « Page indisponible hors ligne »).
+  useEffect(() => {
+    for (const l of LINKS) {
+      if ((l.roles as readonly string[]).includes(role)) router.prefetch(l.href);
+    }
+  }, [role, router]);
+
   if (links.length < 2) return null;
 
   return (
@@ -47,6 +59,7 @@ export function DashboardNav({ role }: { role: Role }) {
             >
               <Icon width={16} height={16} />
               {t(label)}
+              <OfflineLinkHint />
             </Link>
           );
         })}

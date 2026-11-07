@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { OfflineFallback } from "@/components/pwa/offline-fallback";
 import { requireRole } from "@/lib/dal";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { T } from "@/components/i18n/i18n-provider";
@@ -23,7 +24,7 @@ export default function CataloguePage() {
     <main className="relative min-h-dvh overflow-hidden">
       <Aurora sparkles={false} />
       <div className="relative mx-auto max-w-7xl px-4 pb-16 sm:px-8">
-        <Suspense fallback={<CatalogueSkeleton />}>
+        <Suspense fallback={<OfflineFallback><CatalogueSkeleton /></OfflineFallback>}>
           <CatalogueContent />
         </Suspense>
       </div>

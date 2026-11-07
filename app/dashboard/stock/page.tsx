@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { OfflineFallback } from "@/components/pwa/offline-fallback";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { StockHub } from "@/components/stock/stock-hub";
 import { PageIntro, StockTabs } from "@/components/stock/stock-shared";
@@ -18,7 +19,7 @@ export default function StockPage({ searchParams }: { searchParams: SearchParams
     <main className="relative min-h-dvh overflow-hidden">
       <Aurora sparkles={false} />
       <div className="relative mx-auto max-w-6xl px-4 pb-16 sm:px-8">
-        <Suspense fallback={<div className="mt-24 h-96 animate-pulse rounded-[2rem] bg-white/5" />}>
+        <Suspense fallback={<OfflineFallback><div className="mt-24 h-96 animate-pulse rounded-[2rem] bg-white/5" /></OfflineFallback>}>
           <Stock searchParams={searchParams} />
         </Suspense>
       </div>

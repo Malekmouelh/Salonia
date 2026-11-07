@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { OfflineFallback } from "@/components/pwa/offline-fallback";
 import { CalendarApp } from "@/components/calendar/calendar-app";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { T } from "@/components/i18n/i18n-provider";
@@ -14,7 +15,7 @@ export default function CalendarPage({ searchParams }: PageProps<"/dashboard/cal
     <main className="relative min-h-dvh overflow-hidden">
       <Aurora sparkles={false} />
       <div className="relative mx-auto max-w-[1500px] px-4 pb-16 sm:px-8">
-        <Suspense fallback={<CalendarSkeleton />}>
+        <Suspense fallback={<OfflineFallback><CalendarSkeleton /></OfflineFallback>}>
           <Calendar searchParams={searchParams} />
         </Suspense>
       </div>

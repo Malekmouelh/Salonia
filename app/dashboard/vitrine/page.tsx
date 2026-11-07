@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
+import { OfflineFallback } from "@/components/pwa/offline-fallback";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { Aurora } from "@/components/ui/aurora";
 import { AdminVitrineView } from "@/components/vitrine/admin-vitrine-view";
@@ -17,7 +18,7 @@ export default function DashboardVitrinePage() {
     <main className="relative min-h-dvh overflow-x-clip bg-plum-950 pb-16">
       <Aurora />
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6">
-        <Suspense fallback={<div className="mt-24 h-96 animate-pulse rounded-[2rem] bg-white/5" />}>
+        <Suspense fallback={<OfflineFallback><div className="mt-24 h-96 animate-pulse rounded-[2rem] bg-white/5" /></OfflineFallback>}>
           <Vitrine />
         </Suspense>
       </div>

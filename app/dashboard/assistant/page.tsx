@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { OfflineFallback } from "@/components/pwa/offline-fallback";
 import { SetupAssistant } from "@/components/assistant/setup-assistant";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { T } from "@/components/i18n/i18n-provider";
@@ -13,7 +14,7 @@ export default function AssistantPage() {
     <main className="relative min-h-dvh overflow-hidden">
       <Aurora />
       <div className="relative mx-auto max-w-6xl px-4 pb-16 sm:px-8">
-        <Suspense fallback={<div className="h-24" />}>
+        <Suspense fallback={<OfflineFallback><div className="h-24" /></OfflineFallback>}>
           <Header />
         </Suspense>
 

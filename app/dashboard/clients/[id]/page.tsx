@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import { OfflineFallback } from "@/components/pwa/offline-fallback";
 import { CustomerProfileView } from "@/components/clients/customer-profile";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { T } from "@/components/i18n/i18n-provider";
@@ -15,7 +16,7 @@ export default function CustomerPage({ params }: PageProps<"/dashboard/clients/[
     <main className="relative min-h-dvh overflow-hidden">
       <Aurora sparkles={false} />
       <div className="relative mx-auto max-w-6xl px-4 pb-16 sm:px-8">
-        <Suspense fallback={<div className="h-96 animate-pulse rounded-[2rem] bg-white/5" />}>
+        <Suspense fallback={<OfflineFallback><div className="h-96 animate-pulse rounded-[2rem] bg-white/5" /></OfflineFallback>}>
           <Customer params={params} />
         </Suspense>
       </div>

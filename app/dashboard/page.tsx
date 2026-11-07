@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import { OfflineFallback } from "@/components/pwa/offline-fallback";
 import { AddCenter } from "@/components/dashboard/add-center";
 import { CenterSwitcher } from "@/components/dashboard/center-switcher";
 import { CenterPhotosGallery } from "@/components/dashboard/center-photos-gallery";
@@ -63,7 +64,7 @@ export default function DashboardPage({ searchParams }: PageProps<"/dashboard">)
         <Confetti />
       </Suspense>
       <div className="relative mx-auto max-w-6xl px-4 pb-16 sm:px-8">
-        <Suspense fallback={<DashboardSkeleton />}>
+        <Suspense fallback={<OfflineFallback><DashboardSkeleton /></OfflineFallback>}>
           <Dashboard searchParams={searchParams} />
         </Suspense>
       </div>

@@ -7,6 +7,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
+import { OfflineFallback } from "@/components/pwa/offline-fallback";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { FinanceTabs } from "@/components/finance/finance-ui";
 import { SettingsForm } from "@/components/finance/settings-form";
@@ -22,7 +23,7 @@ export default function SettingsPage() {
     <main className="relative min-h-dvh overflow-hidden">
       <Aurora sparkles={false} />
       <div className="relative mx-auto max-w-6xl px-4 pb-16 sm:px-8">
-        <Suspense fallback={<div className="mt-24 h-96 animate-pulse rounded-[2rem] bg-white/5" />}>
+        <Suspense fallback={<OfflineFallback><div className="mt-24 h-96 animate-pulse rounded-[2rem] bg-white/5" /></OfflineFallback>}>
           <Settings />
         </Suspense>
       </div>

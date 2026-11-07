@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { OfflineFallback } from "@/components/pwa/offline-fallback";
 import { AvailabilityEditor } from "@/components/calendar/availability-editor";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { T } from "@/components/i18n/i18n-provider";
@@ -18,7 +19,7 @@ export default function AvailabilityPage({ searchParams }: PageProps<"/dashboard
     <main className="relative min-h-dvh overflow-hidden">
       <Aurora sparkles={false} />
       <div className="relative mx-auto max-w-6xl px-4 pb-16 sm:px-8">
-        <Suspense fallback={<div className="h-96 animate-pulse rounded-[2rem] bg-white/5" />}>
+        <Suspense fallback={<OfflineFallback><div className="h-96 animate-pulse rounded-[2rem] bg-white/5" /></OfflineFallback>}>
           <Availability searchParams={searchParams} />
         </Suspense>
       </div>
