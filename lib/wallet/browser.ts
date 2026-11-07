@@ -41,8 +41,14 @@ function chainFor(cfg: EscrowWebConfig) {
 }
 
 // Message clair pour une erreur MetaMask ou du contrat.
+// Après un redémarrage du nœud Hardhat, MetaMask garde les numéros (nonces) des anciennes transactions.
+const NONCE_RESET_MESSAGE =
+  "La blockchain de test a redémarré : dans MetaMask, ouvrez Paramètres → Avancé → « Effacer les données de l'onglet activité », puis réessayez.";
+const isNonceMismatch = (error: unknown) => /nonce too (high|low)|invalid nonce|nonce has already been used/i.test(String((error as Error)?.message ?? error));
+
 export function metaMaskMessage(error: unknown): string {
   if (error instanceof MetaMaskError) return error.message;
+  if (isNonceMismatch(error)) return NONCE_RESET_MESSAGE;
   if (error instanceof BaseError) {
     if (error.walk((e) => e instanceof UserRejectedRequestError)) return "Vous avez refusé la demande dans MetaMask.";
     const reverted = error.walk((e) => e instanceof ContractFunctionRevertedError);
