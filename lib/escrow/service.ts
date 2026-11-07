@@ -188,12 +188,64 @@ export async function abandonEscrowIntent(p: { clientUserId: string; bookingId: 
   if (booking.status === "PENDING" && !booking.escrow) await rollbackUnpaidBooking(String(booking.organizationId), p.bookingId);
 }
 
-// Rendez-vous en attente d'acompte dont le délai est passé : le créneau est libéré.
+// Acompte payé sur la chaîne mais jamais confirmé dans la base (page fermée ou rechargée entre MetaMask et la
+// vérification) : on retrouve la transaction du wallet relié pour ce centre, ce praticien et cette heure,
+// puis on confirme le rendez-vous comme d'habitude (mêmes contrôles que confirmEscrowFromTx). null : rien trouvé.
+export async function recoverEscrowHold(p: { clientUserId: string; bookingId: string }) {
+  const booking = await ownedBooking(p.clientUserId, p.bookingId);
+  const config = escrowConfig();
+  if (booking.status !== "PENDING" || booking.escrow || !config) return null;
+  const wallet = await getLinkedWallet(p.clientUserId);
+  if (!wallet) return null;
+  const [centerChainId, staff] = await Promise.all([
+    escrowCenterChainId(String(booking.organizationId), String(booking.centerId)),
+    User.findById(booking.staffId).select("chainId").lean(),
+  ]);
+  const startTime = Math.floor(booking.start.getTime() / 1000);
+  const created = await chain.bookingsCreatedBy(wallet as `0x${string}`);
+  for (const c of created) {
+    if (c.centerId !== centerChainId || c.practitionerId !== staff?.chainId || c.startTime !== startTime) continue;
+    // Déjà rattachée à un autre rendez-vous, ou plus active sur la chaîne : on ne la réutilise pas.
+    if (await Booking.exists({ "escrow.network": config.network, "escrow.chainBookingId": c.chainBookingId })) continue;
+    if ((await chain.getBooking(c.chainBookingId)).status !== "CONFIRMED") continue;
+    return confirmEscrowFromTx({ clientUserId: p.clientUserId, bookingId: p.bookingId, txHash: c.txHash });
+  }
+  return null;
+}
+
+// Rendez-vous en attente d'acompte dont le délai est passé : on vérifie d'abord sur la chaîne que l'acompte
+// n'a pas été payé (sinon on confirme), puis le créneau est libéré. Chaîne injoignable : on attend, sans libérer,
+// pour ne jamais laisser un acompte payé sans rendez-vous.
 export async function releaseExpiredHolds(now: Date = new Date()) {
   await connectDB();
-  const expired = await Booking.find({ status: "PENDING", escrow: null, escrowHoldUntil: { $lt: now } }).select("organizationId").lean();
-  for (const b of expired) await rollbackUnpaidBooking(String(b.organizationId), String(b._id));
-  return expired.length;
+  const expired = await Booking.find({ status: "PENDING", escrow: null, escrowHoldUntil: { $lt: now } })
+    .select("organizationId customerId")
+    .lean();
+  let released = 0;
+  for (const b of expired) {
+    const customer = await Customer.findById(b.customerId).select("userId").lean();
+    if (customer?.userId) {
+      try {
+        if (await recoverEscrowHold({ clientUserId: String(customer.userId), bookingId: String(b._id) })) continue;
+      } catch {
+        continue;
+      }
+    }
+    await rollbackUnpaidBooking(String(b.organizationId), String(b._id));
+    released++;
+  }
+  return released;
+}
+
+// Le client relance le même créneau : sa réservation en attente (même centre, même heure) est réutilisée au lieu
+// d'être refusée comme « déjà prise » par elle-même ; si l'acompte est déjà sur la chaîne, elle est confirmée.
+export async function findMyEscrowHold(p: { organizationId: string; centerId: string; clientUserId: string; start: Date }) {
+  await connectDB();
+  const customer = await Customer.findOne({ organizationId: p.organizationId, userId: p.clientUserId }).select("_id").lean();
+  if (!customer) return null;
+  return Booking.findOne({ centerId: p.centerId, customerId: customer._id, start: p.start, status: "PENDING", escrow: null })
+    .select("_id")
+    .lean();
 }
 
 // Statut lu sur la chaîne (getBooking) pour des rendez-vous Salonia : la chaîne fait foi pour l'acompte.

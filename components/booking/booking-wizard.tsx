@@ -909,7 +909,7 @@ function StepDetails({
       });
       if (!r.ok) return setError({ text: r.error, field: r.field });
       const base = { bookingId: r.bookingId, start: r.start, manageUrl: r.manageUrl, staffName: r.staffName, totalTnd: r.totalTnd };
-      if (!r.escrowIntent) return onDone({ ...base, escrow: null });
+      if (!r.escrowIntent) return onDone({ ...base, escrow: r.escrow ?? null });
 
       // Acompte sécurisé : MetaMask signe (jetons de test si besoin, approve, createBooking),
       // puis le serveur relit la transaction sur la chaîne avant de confirmer le rendez-vous.

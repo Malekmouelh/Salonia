@@ -185,7 +185,7 @@ describe("créneaux tenus en attente de MetaMask", () => {
     assert.equal(await Booking.countDocuments({ _id: p.booking._id }), 0);
   });
 
-  it("releaseExpiredHolds libère seulement les attentes expirées, jamais un rendez-vous confirmé", async () => {
+  it("releaseExpiredHolds ne libère jamais un rendez-vous confirmé, ni une attente non vérifiable sur la chaîne", async () => {
     const expired = await pendingBooking(at(10));
     const fresh = await pendingBooking(at(11));
     const confirmed = await pendingBooking(at(12));
@@ -193,9 +193,11 @@ describe("créneaux tenus en attente de MetaMask", () => {
     await Booking.updateOne({ _id: expired.booking._id }, { $set: { escrowHoldUntil: past } });
     await Booking.updateOne({ _id: fresh.booking._id }, { $set: { escrowHoldUntil: new Date(Date.now() + 600_000) } });
     await Booking.updateOne({ _id: confirmed.booking._id }, { $set: { status: "CONFIRMED", escrowHoldUntil: past } });
-    assert.equal(await releaseExpiredHolds(), 1);
-    assert.equal(await Booking.countDocuments({ _id: expired.booking._id }), 0);
-    assert.equal(await Booking.countDocuments({ _id: { $in: [fresh.booking._id, confirmed.booking._id] } }), 2);
+    // Le nœud de test est injoignable : impossible de vérifier que l'acompte n'a pas été payé entre-temps.
+    // L'attente expirée est donc gardée (jamais d'acompte payé sans rendez-vous) ; elle sera traitée plus tard.
+    assert.equal(await releaseExpiredHolds(), 0);
+    assert.equal(await Booking.countDocuments({ _id: { $in: [expired.booking._id, fresh.booking._id, confirmed.booking._id] } }), 3);
+    assert.equal((await Booking.findById(confirmed.booking._id).lean())?.status, "CONFIRMED");
   });
 });
 
