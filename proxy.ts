@@ -6,7 +6,9 @@ import { authConfig } from "@/auth.config";
 const { auth } = NextAuth(authConfig);
 
 const PROTECTED = ["/dashboard"];
-const AUTH_PAGES = ["/login", "/register", "/forgot-password", "/reset-password"];
+// La page d'accueil publique ("/") est réservée aux visiteurs : une personne connectée (clic sur le logo
+// d'une page publique, par exemple) est renvoyée vers son tableau de bord.
+const AUTH_PAGES = ["/", "/login", "/register", "/forgot-password", "/reset-password"];
 
 export default auth((req) => {
   const path = req.nextUrl.pathname;
