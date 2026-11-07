@@ -4,7 +4,7 @@ import type { PublicSalon } from "@/lib/data/public-salon";
 import { getDaySlots, type Slot } from "./availability";
 import { resolveItems } from "./create";
 import { fmtDay, fmtTime } from "./format";
-import { addDays, dayKey, parseDayKey, startOfLocalDay, toLocal, WEEKDAYS } from "./time";
+import { addDays, dayKey, fromLocal, parseDayKey, startOfLocalDay, toLocal, WEEKDAYS } from "./time";
 
 // IA Module 3 — Chatbot de réservation.
 // Le chatbot cherche de vrais créneaux et PROPOSE un rendez-vous ; c'est le client qui confirme
@@ -193,34 +193,102 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
         service_ids: { type: "array", items: { type: "string" } },
         pack_id: { type: "string" },
         staff_id: { type: "string" },
-        start: { type: "string", description: "Début du créneau (ISO 8601, tel que renvoyé par find_slots)" },
+        date: { type: "string", description: "Jour au format YYYY-MM-DD" },
+        time: { type: "string", description: "Heure de début HH:MM (heure de Tunis), exactement comme dans find_slots" },
       },
-      required: ["center_id", "start"],
+      required: ["center_id", "date", "time"],
       additionalProperties: false,
     },
   },
 ];
 
-type ToolInput = { center_id?: string; service_ids?: string[]; pack_id?: string; staff_id?: string; date?: string; start?: string };
+type ToolInput = { center_id?: string; service_ids?: string[]; pack_id?: string; staff_id?: string; date?: string; time?: string; start?: string };
 
-async function aiReply(salon: PublicSalon, messages: ChatMessage[]): Promise<ChatReply> {
-  const client = new Anthropic();
+// Consignes communes aux deux moteurs d'IA (Gemini et Claude) : catalogue du salon et règles de conduite.
+function systemPrompt(salon: PublicSalon) {
   const today = startOfLocalDay(new Date());
   const catalog = {
     salon: salon.name,
     today: `${dayKey(today)} (${WEEKDAYS[toLocal(today).weekday]})`,
+    next_days: Array.from({ length: 14 }, (_, i) => { const d = addDays(today, i); return `${dayKey(d)} = ${WEEKDAYS[toLocal(d).weekday]}`; }),
     centers: salon.centers.map((c) => ({ id: c.id, name: c.name, opening_hours: c.openingHours, practitioners: c.practitioners })),
     services: salon.services.map((s) => ({ id: s.id, name: s.name, category: s.category, minutes: s.durationMinutes, price_tnd: s.priceTnd })),
     packs: salon.packs.map((p) => ({ id: p.id, name: p.name, services: p.serviceNames, minutes: p.durationMinutes, price_tnd: p.priceTnd })),
   };
-  const system = `Tu es l'assistant de réservation du salon ${salon.name} en Tunisie. Tu aides le client à trouver un rendez-vous.
+  return `Tu es l'assistant de réservation du salon ${salon.name} en Tunisie. Tu aides le client à trouver un rendez-vous.
 Règles :
 - Réponds dans la langue du client (français, arabe ou derja tunisienne), en 1 à 3 phrases chaleureuses.
 - Utilise find_slots pour vérifier les disponibilités, puis propose_booking pour 1 à 3 créneaux proches de la demande.
+- Écris en texte simple, sans Markdown, sans liens ni listes : les horaires s'affichent au client sous forme de cartes grâce à propose_booking (appelle-le pour 1 à 3 créneaux dès que tu en as trouvé).
+- Toutes les heures sont en heure de Tunis ; pour le nom d'un jour, lis next_days (ne le calcule pas).
 - Ne demande jamais le nom ni le téléphone : le client les saisira en confirmant la carte proposée.
 - Si la prestation, le centre ou le jour manquent, pose une seule question courte.
 - Ne parle que de réservation dans ce salon.
 Catalogue (JSON) : ${JSON.stringify(catalog)}`;
+}
+
+// ───────────────────────── Moteur Gemini (clé API Google) ─────────────────────────
+// Même principe que Claude : le modèle appelle nos outils find_slots / propose_booking (« function calling »)
+// au lieu d'inventer des créneaux ; c'est notre code qui lit la base et revérifie chaque proposition.
+const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
+
+type GeminiPart = { text?: string; functionCall?: { name: string; args?: ToolInput }; [key: string]: unknown };
+type GeminiContent = { role: "user" | "model"; parts: GeminiPart[] };
+
+async function geminiReply(salon: PublicSalon, messages: ChatMessage[]): Promise<ChatReply> {
+  const key = process.env.GEMINI_API_KEY!;
+  const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+  // Déclarations d'outils au format Gemini (sous-ensemble OpenAPI : sans additionalProperties).
+  const functionDeclarations = TOOLS.map((tool) => {
+    const { additionalProperties: _ignored, ...parameters } = tool.input_schema as Record<string, unknown>;
+    return { name: tool.name, description: tool.description, parameters };
+  });
+  const contents: GeminiContent[] = messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.text }] }));
+  const proposals: ChatProposal[] = [];
+
+  for (let turn = 0; turn < 6; turn++) {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt(salon) }] },
+        contents,
+        tools: [{ functionDeclarations }],
+        generationConfig: { maxOutputTokens: 4096 },
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) throw new Error(`Gemini ${res.status} : ${(await res.text()).slice(0, 300)}`);
+    const data = (await res.json()) as { candidates?: { content?: GeminiContent }[] };
+    const content = data.candidates?.[0]?.content;
+    const parts = content?.parts ?? [];
+    const calls = parts.filter((p) => p.functionCall);
+    if (calls.length === 0) {
+      const text = parts.map((p) => p.text ?? "").join("").trim();
+      return { source: "ai", text: text || "…", proposals };
+    }
+    // Le tour du modèle est renvoyé tel quel (il contient la signature de raisonnement exigée par Gemini).
+    contents.push({ role: "model", parts });
+    const responses: GeminiPart[] = [];
+    for (const part of calls) {
+      const call = part.functionCall!;
+      let result: string;
+      try {
+        result = await runTool(salon, call.name, call.args ?? {}, proposals);
+      } catch (e) {
+        result = `Erreur : ${e instanceof Error ? e.message : "inconnue"}`;
+      }
+      responses.push({ functionResponse: { name: call.name, response: { result } } });
+    }
+    contents.push({ role: "user", parts: responses });
+  }
+  return { source: "ai", text: "", proposals };
+}
+
+// ───────────────────────── Moteur Claude (clé API Anthropic) ─────────────────────────
+async function aiReply(salon: PublicSalon, messages: ChatMessage[]): Promise<ChatReply> {
+  const client = new Anthropic();
+  const system = systemPrompt(salon);
 
   const history: Anthropic.Beta.BetaMessageParam[] = messages.map((m) => ({ role: m.role, content: m.text }));
   const proposals: ChatProposal[] = [];
@@ -272,12 +340,19 @@ async function runTool(salon: PublicSalon, name: string, input: ToolInput, propo
     const slots = await getDaySlots({ organizationId: salon.id, centerId: center.id, day, durationMinutes: duration, staffId });
     if (!slots.length) return "Aucun créneau libre ce jour-là.";
     const names = new Map(center.practitioners.map((p) => [p.id, p.name]));
-    return JSON.stringify(slots.slice(0, 24).map((s) => ({ start: s.start, heure: fmtTime(s.start), praticiens: s.staffIds.map((id) => names.get(id)) })));
+    return JSON.stringify({
+      jour: fmtDay(day),
+      creneaux: slots.slice(0, 48).map((s) => ({ heure: fmtTime(s.start), praticiens: s.staffIds.map((id) => names.get(id)) })),
+    });
   }
 
   if (name === "propose_booking") {
     if (proposals.length >= 3) return "Trois propositions déjà faites.";
-    const start = new Date(input.start ?? "");
+    const day = input.date ? parseDayKey(input.date) : null;
+    const hm = /^(\d{1,2}):(\d{2})$/.exec(input.time ?? "");
+    const local = day ? toLocal(day) : null;
+    const start = local && hm ? fromLocal(local.year, local.month, local.day, Number(hm[1]), Number(hm[2])) : new Date(input.start ?? "");
+    if (Number.isNaN(start.getTime())) throw new Error("date ou heure invalide (YYYY-MM-DD et HH:MM)");
     const slots = await getDaySlots({ organizationId: salon.id, centerId: center.id, day: startOfLocalDay(start), durationMinutes: duration, staffId });
     const slot = slots.find((s) => s.start === start.toISOString());
     if (!slot) throw new Error("Ce créneau n'est pas libre : rappelle find_slots.");
@@ -291,6 +366,14 @@ async function runTool(salon: PublicSalon, name: string, input: ToolInput, propo
 }
 
 export async function chatbotReply(salon: PublicSalon, messages: ChatMessage[]): Promise<ChatReply> {
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      const reply = await geminiReply(salon, messages);
+      if (reply.text || reply.proposals?.length) return reply;
+    } catch (error) {
+      console.error("Chatbot Gemini indisponible :", error instanceof Error ? error.message : error);
+    }
+  }
   if (process.env.ANTHROPIC_API_KEY) {
     try {
       const reply = await aiReply(salon, messages);
