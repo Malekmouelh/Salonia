@@ -19,14 +19,21 @@ import {
   type TestDb,
 } from "@/lib/booking/test-support";
 import { EscrowError } from "./errors";
+import mongoose from "mongoose";
+import { chainDbName, chainModels } from "@/lib/models/chain";
+import { NETWORK_ERROR } from "./errors";
 import {
-  cancelEscrowBookingForClient,
-  settleEscrowBookingByStaff,
+  NO_WALLET,
+  abandonEscrowIntent,
+  confirmCancelFromTx,
+  confirmEscrowFromTx,
   escrowCenterChainId,
   isSlotFreeOnChain,
-  lockDepositForBooking,
+  prepareEscrowIntent,
   readEscrowStatuses,
+  releaseExpiredHolds,
   rollbackUnpaidBooking,
+  settleEscrowBookingByStaff,
 } from "./service";
 
 let db: TestDb;
@@ -46,6 +53,8 @@ after(async () => {
 });
 beforeEach(async () => {
   await resetTestDb(db);
+  // Base blockchain séparée (comptes MetaMask) : vidée aussi entre deux tests.
+  await mongoose.connection.useDb(chainDbName()).dropDatabase();
 });
 
 const rejects = (promise: Promise<unknown>, message: string) =>
@@ -97,41 +106,96 @@ describe("isSlotFreeOnChain (sans appel réseau)", () => {
   });
 });
 
-describe("lockDepositForBooking : refus avant toute transaction", () => {
-  it("refuse un créneau non aligné sur 30 minutes", async () => {
-    const s = await salon();
-    const booking = await s.book(at(10, 15));
+const TX = `0x${"ab".repeat(32)}`;
+
+// Rendez-vous en attente (PENDING) d'un compte client, avec ou sans wallet MetaMask relié.
+async function pendingBooking(start: Date, { wallet = true, escrowCenter = true } = {}) {
+  const s = await salon({ escrow: escrowCenter });
+  const client = await User.create({ firstName: "Sarra", lastName: "Test", email: `p${Date.now()}${Math.random()}@test.local`, passwordHash: "x", role: "CLIENT" });
+  await Customer.updateOne({ _id: s.customer._id }, { $set: { userId: client._id } });
+  if (wallet) {
+    const { WalletAccount } = await chainModels();
+    await WalletAccount.create({ userId: String(client._id), address: "0x70997970c51812dc3a010c7d01b50e0d17dc79c8", linkedAt: new Date() });
+  }
+  const booking = await s.book(start);
+  await Booking.updateOne({ _id: booking._id }, { $set: { status: "PENDING" } });
+  return { ...s, clientUserId: String(client._id), bookingId: String(booking._id), booking };
+}
+
+describe("prepareEscrowIntent (MetaMask) : refus avant toute transaction", () => {
+  it("MetaMask obligatoire : refuse un client sans wallet relié", async () => {
+    const p = await pendingBooking(at(10), { wallet: false });
+    await rejects(prepareEscrowIntent({ organizationId: p.organizationId, bookingId: p.bookingId, clientUserId: p.clientUserId }), NO_WALLET);
+  });
+
+  it("refuse le rendez-vous d'un autre client ou d'une autre organisation", async () => {
+    const p = await pendingBooking(at(10));
+    const other = await salon();
+    const intruder = await User.create({ firstName: "Autre", lastName: "Client", email: "autre@test.local", passwordHash: "x", role: "CLIENT" });
+    await rejects(prepareEscrowIntent({ organizationId: p.organizationId, bookingId: p.bookingId, clientUserId: String(intruder._id) }), "Rendez-vous introuvable.");
+    await rejects(prepareEscrowIntent({ organizationId: other.organizationId, bookingId: p.bookingId, clientUserId: p.clientUserId }), "Rendez-vous introuvable.");
+  });
+
+  it("refuse un créneau non aligné, un centre sans acompte sécurisé, un rendez-vous déjà confirmé", async () => {
+    const unaligned = await pendingBooking(at(10, 15));
     await rejects(
-      lockDepositForBooking({ organizationId: s.organizationId, bookingId: String(booking._id), clientUserId: String(s.staff._id) }),
+      prepareEscrowIntent({ organizationId: unaligned.organizationId, bookingId: unaligned.bookingId, clientUserId: unaligned.clientUserId }),
       "Avec l'acompte sécurisé, choisissez un créneau à l'heure pile ou à la demie.",
     );
-  });
-
-  it("refuse un centre sans acompte sécurisé", async () => {
-    const s = await salon({ escrow: false });
-    const booking = await s.book(at(10));
+    const plain = await pendingBooking(at(10), { escrowCenter: false });
     await rejects(
-      lockDepositForBooking({ organizationId: s.organizationId, bookingId: String(booking._id), clientUserId: String(s.staff._id) }),
+      prepareEscrowIntent({ organizationId: plain.organizationId, bookingId: plain.bookingId, clientUserId: plain.clientUserId }),
       "Ce salon n'utilise pas l'acompte sécurisé.",
     );
+    const confirmed = await pendingBooking(at(11));
+    await Booking.updateOne({ _id: confirmed.booking._id }, { $set: { status: "CONFIRMED" } });
+    await rejects(
+      prepareEscrowIntent({ organizationId: confirmed.organizationId, bookingId: confirmed.bookingId, clientUserId: confirmed.clientUserId }),
+      "Cette réservation est déjà réglée.",
+    );
+  });
+});
+
+describe("confirmEscrowFromTx (MetaMask) : le serveur ne croit jamais le navigateur", () => {
+  it("refuse un hash invalide, le rendez-vous d'un autre client, un rendez-vous déjà réglé", async () => {
+    const p = await pendingBooking(at(10));
+    await rejects(confirmEscrowFromTx({ clientUserId: p.clientUserId, bookingId: p.bookingId, txHash: "0x1234" }), "Transaction introuvable ou refusée par le contrat.");
+    const intruder = await User.create({ firstName: "Autre", lastName: "Client", email: "autre2@test.local", passwordHash: "x", role: "CLIENT" });
+    await rejects(confirmEscrowFromTx({ clientUserId: String(intruder._id), bookingId: p.bookingId, txHash: TX }), "Rendez-vous introuvable.");
+    await Booking.updateOne({ _id: p.booking._id }, { $set: { status: "CONFIRMED" } });
+    await rejects(confirmEscrowFromTx({ clientUserId: p.clientUserId, bookingId: p.bookingId, txHash: TX }), "Cette réservation est déjà réglée.");
   });
 
-  it("refuse le rendez-vous d'une autre organisation, et un acompte déjà bloqué", async () => {
-    const s = await salon();
-    const other = await salon();
-    const booking = await s.book(at(10));
-    await rejects(
-      lockDepositForBooking({ organizationId: other.organizationId, bookingId: String(booking._id), clientUserId: String(s.staff._id) }),
-      "Rendez-vous introuvable.",
-    );
-    await Booking.updateOne(
-      { _id: booking._id },
-      { $set: { escrow: { network: "hardhat", chainBookingId: 1, centerChainId: 7, practitionerChainId: 1, depositUnits: "30000000", clientAddress: "0x0", createTxHash: "0x1" } } },
-    );
-    await rejects(
-      lockDepositForBooking({ organizationId: s.organizationId, bookingId: String(booking._id), clientUserId: String(s.staff._id) }),
-      "L'acompte de ce rendez-vous est déjà bloqué.",
-    );
+  it("blockchain injoignable : rien n'est confirmé, le rendez-vous reste en attente", async () => {
+    const p = await pendingBooking(at(10));
+    await rejects(confirmEscrowFromTx({ clientUserId: p.clientUserId, bookingId: p.bookingId, txHash: TX }), NETWORK_ERROR);
+    const after = await Booking.findById(p.booking._id).lean();
+    assert.equal(after?.status, "PENDING");
+    assert.equal(after?.escrow ?? null, null);
+  });
+});
+
+describe("créneaux tenus en attente de MetaMask", () => {
+  it("abandonEscrowIntent rend le créneau du client, jamais celui d'un autre", async () => {
+    const p = await pendingBooking(at(10));
+    const intruder = await User.create({ firstName: "Autre", lastName: "Client", email: "autre3@test.local", passwordHash: "x", role: "CLIENT" });
+    await rejects(abandonEscrowIntent({ clientUserId: String(intruder._id), bookingId: p.bookingId }), "Rendez-vous introuvable.");
+    assert.equal(await Booking.countDocuments({ _id: p.booking._id }), 1);
+    await abandonEscrowIntent({ clientUserId: p.clientUserId, bookingId: p.bookingId });
+    assert.equal(await Booking.countDocuments({ _id: p.booking._id }), 0);
+  });
+
+  it("releaseExpiredHolds libère seulement les attentes expirées, jamais un rendez-vous confirmé", async () => {
+    const expired = await pendingBooking(at(10));
+    const fresh = await pendingBooking(at(11));
+    const confirmed = await pendingBooking(at(12));
+    const past = new Date(Date.now() - 60_000);
+    await Booking.updateOne({ _id: expired.booking._id }, { $set: { escrowHoldUntil: past } });
+    await Booking.updateOne({ _id: fresh.booking._id }, { $set: { escrowHoldUntil: new Date(Date.now() + 600_000) } });
+    await Booking.updateOne({ _id: confirmed.booking._id }, { $set: { status: "CONFIRMED", escrowHoldUntil: past } });
+    assert.equal(await releaseExpiredHolds(), 1);
+    assert.equal(await Booking.countDocuments({ _id: expired.booking._id }), 0);
+    assert.equal(await Booking.countDocuments({ _id: { $in: [fresh.booking._id, confirmed.booking._id] } }), 2);
   });
 });
 
@@ -188,38 +252,27 @@ async function escrowBooking(start: Date) {
 
 const inHours = (h: number) => new Date(Math.ceil((Date.now() + h * 3_600_000) / 1_800_000) * 1_800_000);
 
-describe("cancelEscrowBookingForClient : refus avant toute transaction", () => {
-  it("un autre compte client ne peut pas annuler (même message que « introuvable »)", async () => {
+describe("confirmCancelFromTx (annulation MetaMask) : vérifications avant de toucher la base", () => {
+  it("refuse un hash invalide et le rendez-vous d'un autre client", async () => {
     const e = await escrowBooking(inHours(48));
+    await rejects(confirmCancelFromTx({ clientUserId: e.clientUserId, bookingId: e.bookingId, txHash: "0x12" }), "Transaction introuvable ou refusée par le contrat.");
     const intruder = await User.create({ firstName: "Autre", lastName: "Client", email: "autre@test.local", passwordHash: "x", role: "CLIENT" });
-    await rejects(cancelEscrowBookingForClient({ clientUserId: String(intruder._id), bookingId: e.bookingId }), "Rendez-vous introuvable.");
+    await rejects(confirmCancelFromTx({ clientUserId: String(intruder._id), bookingId: e.bookingId, txHash: TX }), "Rendez-vous introuvable.");
     assert.equal((await Booking.findById(e.booking._id).lean())?.status, "CONFIRMED");
   });
 
-  it("refuse un rendez-vous sans acompte sécurisé", async () => {
-    const e = await escrowBooking(inHours(48));
-    await Booking.updateOne({ _id: e.booking._id }, { $set: { escrow: null } });
-    await rejects(cancelEscrowBookingForClient({ clientUserId: e.clientUserId, bookingId: e.bookingId }), "Ce rendez-vous n'a pas d'acompte sécurisé.");
-  });
-
-  it("refuse un acompte déjà réglé (double règlement)", async () => {
-    const e = await escrowBooking(inHours(48));
-    await Booking.updateOne({ _id: e.booking._id }, { $set: { status: "CANCELLED", "escrow.status": "CANCELLED" } });
-    await rejects(cancelEscrowBookingForClient({ clientUserId: e.clientUserId, bookingId: e.bookingId }), "Cette réservation est déjà réglée.");
-  });
-
-  it("refuse après l'heure de début", async () => {
-    const e = await escrowBooking(new Date(Date.now() - 60_000));
-    await rejects(
-      cancelEscrowBookingForClient({ clientUserId: e.clientUserId, bookingId: e.bookingId }),
-      "Le rendez-vous a commencé : l'annulation n'est plus possible.",
-    );
-  });
-
-  it("refuse un acompte enregistré sur un autre réseau que celui du serveur", async () => {
+  it("refuse un rendez-vous sans acompte sécurisé ou enregistré sur un autre réseau", async () => {
     const e = await escrowBooking(inHours(48));
     await Booking.updateOne({ _id: e.booking._id }, { $set: { "escrow.network": "sepolia" } });
-    await rejects(cancelEscrowBookingForClient({ clientUserId: e.clientUserId, bookingId: e.bookingId }), "L'acompte sécurisé n'est pas activé sur ce serveur.");
+    await rejects(confirmCancelFromTx({ clientUserId: e.clientUserId, bookingId: e.bookingId, txHash: TX }), "L'acompte sécurisé n'est pas activé sur ce serveur.");
+    await Booking.updateOne({ _id: e.booking._id }, { $set: { escrow: null } });
+    await rejects(confirmCancelFromTx({ clientUserId: e.clientUserId, bookingId: e.bookingId, txHash: TX }), "Ce rendez-vous n'a pas d'acompte sécurisé.");
+  });
+
+  it("blockchain injoignable : le rendez-vous reste confirmé", async () => {
+    const e = await escrowBooking(inHours(48));
+    await rejects(confirmCancelFromTx({ clientUserId: e.clientUserId, bookingId: e.bookingId, txHash: TX }), NETWORK_ERROR);
+    assert.equal((await Booking.findById(e.booking._id).lean())?.status, "CONFIRMED");
   });
 });
 

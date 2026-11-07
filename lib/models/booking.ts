@@ -97,6 +97,8 @@ const BookingSchema = new Schema(
     cancelReason: String,
     rescheduledFromStart: Date,
     escrow: { type: BookingEscrowSchema, default: null },
+    // SalonEscrow + MetaMask : créneau tenu (PENDING) en attendant la transaction du client ; libéré après ce délai.
+    escrowHoldUntil: Date,
   },
   { timestamps: true },
 );

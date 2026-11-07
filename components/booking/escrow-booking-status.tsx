@@ -2,17 +2,21 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { cancelMyEscrowBooking } from "@/app/actions/client";
+import { confirmMyEscrowCancel } from "@/app/actions/client";
+import type { EscrowWebConfig } from "@/app/actions/wallet";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import type { EscrowStatus } from "@/lib/enums";
 import { cancellationOutcome } from "@/lib/escrow/rules";
+import { cancelWithMetaMask, metaMaskMessage } from "@/lib/wallet/browser";
 
 // SalonEscrow (Module 3) : acompte d'un rendez-vous dans l'espace client — statut lu sur la blockchain
-// et annulation par le client, avec l'issue annoncée AVANT de confirmer (règle des 24 heures).
+// et annulation signée par MetaMask, avec l'issue annoncée AVANT de confirmer (règle des 24 heures).
+// Le serveur relit ensuite la transaction sur la chaîne avant de mettre la base à jour.
 
 export type EscrowInfo = {
   depositTnd: string;
   chainBookingId: number;
+  clientAddress: string;
   status: EscrowStatus;
   fromChain: boolean;
   refunded: boolean | null;
@@ -25,7 +29,17 @@ function statusLabel(e: EscrowInfo) {
   return { text: "Acompte versé au salon", tone: "text-white/60" };
 }
 
-export function EscrowBookingStatus({ bookingId, start, escrow }: { bookingId: string; start: string; escrow: EscrowInfo }) {
+export function EscrowBookingStatus({
+  bookingId,
+  start,
+  escrow,
+  cfg,
+}: {
+  bookingId: string;
+  start: string;
+  escrow: EscrowInfo;
+  cfg: EscrowWebConfig | null;
+}) {
   const { t } = useI18n();
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
@@ -33,12 +47,19 @@ export function EscrowBookingStatus({ bookingId, start, escrow }: { bookingId: s
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const label = statusLabel(escrow);
   const outcome = cancellationOutcome(new Date(start));
-  const cancellable = escrow.status === "CONFIRMED" && outcome !== "STARTED";
+  const cancellable = cfg !== null && escrow.status === "CONFIRMED" && outcome !== "STARTED";
 
   const cancel = () =>
     startTransition(async () => {
       setMessage(null);
-      const r = await cancelMyEscrowBooking(bookingId);
+      let txHash: string;
+      try {
+        txHash = await cancelWithMetaMask(cfg!, { chainBookingId: escrow.chainBookingId, clientAddress: escrow.clientAddress });
+      } catch (e) {
+        setMessage({ tone: "error", text: t(metaMaskMessage(e)) });
+        return;
+      }
+      const r = await confirmMyEscrowCancel({ bookingId, txHash });
       if (r.ok) {
         setConfirming(false);
         setMessage({
@@ -78,7 +99,7 @@ export function EscrowBookingStatus({ bookingId, start, escrow }: { bookingId: s
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button type="button" disabled={pending} onClick={cancel} className="rounded-lg bg-red-500/80 px-3 py-1.5 font-semibold text-white disabled:opacity-60">
-              {pending ? t("Transaction en cours…") : t("Confirmer l'annulation")}
+              {pending ? t("Validez dans MetaMask…") : t("Confirmer l'annulation")}
             </button>
             <button type="button" disabled={pending} onClick={() => setConfirming(false)} className="rounded-lg border border-white/15 px-3 py-1.5 text-white/80">
               {t("Garder mon rendez-vous")}

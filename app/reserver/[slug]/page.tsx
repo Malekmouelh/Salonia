@@ -10,6 +10,8 @@ import { decodeDraft } from "@/lib/booking/draft";
 import { getBookingClient } from "@/lib/data/booking-client";
 import { getPublicSalon } from "@/lib/data/public-salon";
 import { getEscrowOffers } from "@/lib/escrow/service";
+import { getEscrowWebConfig } from "@/app/actions/wallet";
+import { getLinkedWallet } from "@/lib/wallet/service";
 
 export async function generateMetadata({ params }: PageProps<"/reserver/[slug]">): Promise<Metadata> {
   const { slug } = await params;
@@ -47,6 +49,11 @@ async function Wizard({
   const draft = decodeDraft(query.reprise);
   // Acompte sécurisé (SalonEscrow) : lu sur la chaîne à chaque affichage, jamais mis en cache.
   const escrow = await getEscrowOffers(salon.id);
+  // MetaMask : réseau et contrats (publics) et wallet déjà relié au compte client connecté.
+  const [escrowWeb, walletAddress] = await Promise.all([
+    getEscrowWebConfig(),
+    client?.kind === "client" ? getLinkedWallet(client.id) : Promise.resolve(null),
+  ]);
 
   return (
     <>
@@ -72,6 +79,8 @@ async function Wizard({
         client={client}
         draft={draft && salon.centers.some((c) => c.id === draft.centerId) ? draft : null}
         escrow={escrow}
+        escrowWeb={escrowWeb}
+        walletAddress={walletAddress}
       />
     </>
   );

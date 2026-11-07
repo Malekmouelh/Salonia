@@ -8,13 +8,15 @@ import { Center, User } from "@/lib/models/core";
 import * as chain from "./chain";
 import { escrowConfig, isEscrowEnabled } from "./config";
 import { EscrowError } from "./errors";
+import { getLinkedWallet } from "@/lib/wallet/service";
 import { ensurePractitionerChainId, ensureWalletIndex } from "./ids";
-import { cancellationOutcome, isEscrowSlot, staffActions, unitsToTnd } from "./rules";
+import { isEscrowSlot, staffActions, unitsToTnd } from "./rules";
 
 // SalonEscrow — service Salonia (Module 3, Membre 1) : fait le lien entre la base et la chaîne.
 // Les Server Actions vérifient la session ; ce service vérifie le reste (organisation, centre, propriétaire)
 // avant d'appeler lib/escrow/chain.ts. Un centre utilise l'acompte sécurisé dès qu'il a un numéro de chaîne
-// (Center.chainId), attribué quand l'administrateur le configure sur le contrat (scripts/escrow-setup.ts).
+// (Center.chainId), attribué quand l'administrateur le configure sur le contrat (scripts/escrow-dev.ts).
+// Clients : MetaMask signe leurs transactions et le serveur les vérifie. Staff : wallet géré par le serveur.
 
 export type EscrowOffer = { depositTnd: string | null };
 
@@ -64,49 +66,134 @@ export async function isSlotFreeOnChain(p: { organizationId: string; centerId: s
   return chain.isSlotFree(centerChainId, staff.chainId, p.start);
 }
 
-// Bloque l'acompte d'un rendez-vous Salonia déjà enregistré : wallet du client → createBooking sur la chaîne,
-// puis copie du résultat dans Booking.escrow. Le client et le centre viennent de la base, jamais du navigateur.
-export async function lockDepositForBooking(p: { organizationId: string; bookingId: string; clientUserId: string }): Promise<EscrowSummary> {
+// ── Réservation signée par MetaMask (le navigateur signe, le serveur vérifie) ──
+// 1. Salonia enregistre le rendez-vous en attente (PENDING) : le créneau est tenu pendant HOLD_MINUTES.
+// 2. prepareEscrowIntent renvoie au navigateur ce qu'il doit signer (centre, praticien, heure, montant).
+// 3. MetaMask envoie approve + createBooking depuis le wallet du client.
+// 4. confirmEscrowFromTx relit la transaction sur la chaîne et ne confirme que si elle correspond exactement.
+// Sans confirmation à temps, releaseExpiredHolds libère le créneau.
+export const HOLD_MINUTES = 15;
+
+export type EscrowIntent = {
+  bookingId: string;
+  centerChainId: number;
+  practitionerChainId: number;
+  startTime: number;
+  depositUnits: string;
+  depositTnd: string;
+  walletAddress: string;
+};
+
+export const NO_WALLET = "Reliez MetaMask à votre compte pour réserver avec l'acompte sécurisé.";
+
+// Le rendez-vous appartient-il au compte client connecté ? (fiche client reliée par userId)
+async function ownedBooking(clientUserId: string, bookingId: string) {
+  if (!Types.ObjectId.isValid(bookingId)) throw new EscrowError("Rendez-vous introuvable.");
   await connectDB();
-  const booking = await Booking.findOne({ _id: p.bookingId, organizationId: p.organizationId }).select("centerId staffId start escrow").lean();
-  if (!booking) throw new EscrowError("Rendez-vous introuvable.");
+  const booking = await Booking.findById(bookingId).select("organizationId centerId staffId customerId start status escrow").lean();
+  const owner = booking && (await Customer.exists({ _id: booking.customerId, userId: clientUserId }));
+  if (!booking || !owner) throw new EscrowError("Rendez-vous introuvable.");
+  return booking;
+}
+
+export async function prepareEscrowIntent(p: { organizationId: string; bookingId: string; clientUserId: string }): Promise<EscrowIntent> {
+  const booking = await ownedBooking(p.clientUserId, p.bookingId);
+  if (String(booking.organizationId) !== p.organizationId) throw new EscrowError("Rendez-vous introuvable.");
   if (booking.escrow) throw new EscrowError("L'acompte de ce rendez-vous est déjà bloqué.");
+  if (booking.status !== "PENDING") throw new EscrowError("Cette réservation est déjà réglée.");
   if (!isEscrowSlot(booking.start)) throw new EscrowError("Avec l'acompte sécurisé, choisissez un créneau à l'heure pile ou à la demie.");
 
   const centerId = String(booking.centerId);
   const centerChainId = await escrowCenterChainId(p.organizationId, centerId);
   if (centerChainId === null) throw new EscrowError("Ce salon n'utilise pas l'acompte sécurisé.");
-  const [practitionerChainId, clientWalletIndex] = await Promise.all([
-    ensurePractitionerChainId(p.organizationId, centerId, String(booking.staffId)),
-    ensureWalletIndex(p.clientUserId),
-  ]);
+  const walletAddress = await getLinkedWallet(p.clientUserId);
+  if (!walletAddress) throw new EscrowError(NO_WALLET);
+  const practitionerChainId = await ensurePractitionerChainId(p.organizationId, centerId, String(booking.staffId));
+  const deposit = await chain.depositOf(centerChainId);
+  if (deposit === BigInt(0)) throw new EscrowError("Ce salon n'a pas encore configuré son acompte.");
+  // Testnet : un peu de gaz pour que le wallet du client puisse payer ses transactions.
+  await chain.fundGas(walletAddress as `0x${string}`);
 
-  const created = await chain.createBookingOnChain({ clientWalletIndex, centerChainId, practitionerChainId, start: booking.start });
-  const network = escrowConfig()!.network;
+  await Booking.updateOne({ _id: booking._id }, { $set: { escrowHoldUntil: new Date(Date.now() + HOLD_MINUTES * 60_000) } });
+  return {
+    bookingId: p.bookingId,
+    centerChainId,
+    practitionerChainId,
+    startTime: Math.floor(booking.start.getTime() / 1000),
+    depositUnits: deposit.toString(),
+    depositTnd: unitsToTnd(deposit),
+    walletAddress,
+  };
+}
+
+// Vérifie la transaction createBooking envoyée par MetaMask, puis confirme le rendez-vous.
+export async function confirmEscrowFromTx(p: {
+  clientUserId: string;
+  bookingId: string;
+  txHash: string;
+}): Promise<EscrowSummary & { organizationId: string }> {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(p.txHash)) throw new EscrowError("Transaction introuvable ou refusée par le contrat.");
+  const booking = await ownedBooking(p.clientUserId, p.bookingId);
+  if (booking.escrow) throw new EscrowError("L'acompte de ce rendez-vous est déjà bloqué.");
+  if (booking.status !== "PENDING") throw new EscrowError("Cette réservation est déjà réglée.");
+  const config = escrowConfig();
+  if (!config) throw new EscrowError("L'acompte sécurisé n'est pas activé sur ce serveur.");
+
+  const organizationId = String(booking.organizationId);
+  const [centerChainId, walletAddress, staff, created] = await Promise.all([
+    escrowCenterChainId(organizationId, String(booking.centerId)),
+    getLinkedWallet(p.clientUserId),
+    User.findById(booking.staffId).select("chainId").lean(),
+    chain.bookingCreatedInTx(p.txHash as `0x${string}`),
+  ]);
+  const matches =
+    walletAddress !== null &&
+    created.client.toLowerCase() === walletAddress.toLowerCase() &&
+    created.centerId === centerChainId &&
+    created.practitionerId === staff?.chainId &&
+    created.startTime === Math.floor(booking.start.getTime() / 1000);
+  if (!matches) throw new EscrowError("La transaction ne correspond pas à ce rendez-vous.");
+
   try {
     await Booking.updateOne(
-      { _id: p.bookingId, organizationId: p.organizationId },
+      { _id: booking._id, status: "PENDING", escrow: null },
       {
         $set: {
+          status: "CONFIRMED",
           escrow: {
-            network,
+            network: config.network,
             chainBookingId: created.chainBookingId,
-            centerChainId,
-            practitionerChainId,
-            depositUnits: created.depositUnits,
-            clientAddress: created.clientAddress,
+            centerChainId: created.centerId,
+            practitionerChainId: created.practitionerId,
+            depositUnits: created.deposit.toString(),
+            clientAddress: created.client,
             status: "CONFIRMED",
-            createTxHash: created.txHash,
+            createTxHash: p.txHash,
           },
         },
+        $unset: { escrowHoldUntil: 1 },
       },
     );
   } catch (error) {
-    // L'acompte est bloqué sur la chaîne mais la base n'a pas pu l'enregistrer : trace pour rapprochement manuel.
-    console.error(`SalonEscrow : réservation ${created.chainBookingId} (${network}) non enregistrée pour le rendez-vous ${p.bookingId}.`, error);
-    throw new EscrowError("Acompte bloqué, mais l'enregistrement a échoué. Contactez le salon.");
+    // Index unique (réseau, n° de réservation) : une même transaction ne confirme qu'un seul rendez-vous.
+    if ((error as { code?: number }).code === 11000) throw new EscrowError("Cette transaction a déjà été utilisée.");
+    throw error;
   }
-  return { network, chainBookingId: created.chainBookingId, depositTnd: unitsToTnd(created.depositUnits), txHash: created.txHash };
+  return { organizationId, network: config.network, chainBookingId: created.chainBookingId, depositTnd: unitsToTnd(created.deposit), txHash: p.txHash };
+}
+
+// Le client a refusé dans MetaMask (ou la transaction a échoué) : le créneau est rendu aussitôt.
+export async function abandonEscrowIntent(p: { clientUserId: string; bookingId: string }) {
+  const booking = await ownedBooking(p.clientUserId, p.bookingId);
+  if (booking.status === "PENDING" && !booking.escrow) await rollbackUnpaidBooking(String(booking.organizationId), p.bookingId);
+}
+
+// Rendez-vous en attente d'acompte dont le délai est passé : le créneau est libéré.
+export async function releaseExpiredHolds(now: Date = new Date()) {
+  await connectDB();
+  const expired = await Booking.find({ status: "PENDING", escrow: null, escrowHoldUntil: { $lt: now } }).select("organizationId").lean();
+  for (const b of expired) await rollbackUnpaidBooking(String(b.organizationId), String(b._id));
+  return expired.length;
 }
 
 // Statut lu sur la chaîne (getBooking) pour des rendez-vous Salonia : la chaîne fait foi pour l'acompte.
@@ -126,37 +213,37 @@ export async function readEscrowStatuses(items: { id: string; network: string; c
   return Object.fromEntries(entries) as Record<string, EscrowStatus | null>;
 }
 
-// Annulation par le client lui-même (cancelBooking signé par SON wallet). Le contrat applique la règle des 24 h :
-// remboursé au client, sinon versé au salon. Seul le compte relié à la fiche client du rendez-vous peut annuler.
-export async function cancelEscrowBookingForClient(p: { clientUserId: string; bookingId: string }) {
-  if (!Types.ObjectId.isValid(p.bookingId)) throw new EscrowError("Rendez-vous introuvable.");
-  await connectDB();
-  const booking = await Booking.findById(p.bookingId).select("organizationId customerId start status escrow").lean();
-  const owner = booking && (await Customer.exists({ _id: booking.customerId, userId: p.clientUserId }));
-  if (!booking || !owner) throw new EscrowError("Rendez-vous introuvable.");
+// Annulation signée par MetaMask (cancelBooking depuis le wallet du client) : le serveur relit l'événement
+// BookingCancelled de la transaction, vérifie qu'il concerne CE rendez-vous et CE client, puis met la base à jour.
+// Le contrat a déjà appliqué la règle des 24 h : remboursé au client, sinon versé au salon.
+export async function confirmCancelFromTx(p: { clientUserId: string; bookingId: string; txHash: string }) {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(p.txHash)) throw new EscrowError("Transaction introuvable ou refusée par le contrat.");
+  const booking = await ownedBooking(p.clientUserId, p.bookingId);
   if (!booking.escrow) throw new EscrowError("Ce rendez-vous n'a pas d'acompte sécurisé.");
-  if (booking.status !== "CONFIRMED" || booking.escrow.status !== "CONFIRMED") throw new EscrowError("Cette réservation est déjà réglée.");
-  if (cancellationOutcome(booking.start) === "STARTED") throw new EscrowError("Le rendez-vous a commencé : l'annulation n'est plus possible.");
   const config = escrowConfig();
   if (!config || booking.escrow.network !== config.network) throw new EscrowError("L'acompte sécurisé n'est pas activé sur ce serveur.");
 
-  const clientWalletIndex = await ensureWalletIndex(p.clientUserId);
-  const { refunded, txHash } = await chain.cancelBookingOnChain({ clientWalletIndex, chainBookingId: booking.escrow.chainBookingId });
-
+  const cancelled = await chain.bookingCancelledInTx(p.txHash as `0x${string}`);
+  if (
+    cancelled.chainBookingId !== booking.escrow.chainBookingId ||
+    cancelled.client.toLowerCase() !== booking.escrow.clientAddress.toLowerCase()
+  ) {
+    throw new EscrowError("La transaction ne correspond pas à ce rendez-vous.");
+  }
   await Booking.updateOne(
     { _id: booking._id },
     {
       $set: {
         status: "CANCELLED",
         cancelledAt: new Date(),
-        cancelReason: refunded ? "Annulé par le client (acompte remboursé)" : "Annulé par le client (acompte versé au salon)",
+        cancelReason: cancelled.refunded ? "Annulé par le client (acompte remboursé)" : "Annulé par le client (acompte versé au salon)",
         "escrow.status": "CANCELLED",
-        "escrow.refunded": refunded,
-        "escrow.settleTxHash": txHash,
+        "escrow.refunded": cancelled.refunded,
+        "escrow.settleTxHash": p.txHash,
       },
     },
   );
-  return { organizationId: String(booking.organizationId), refunded, txHash, depositTnd: unitsToTnd(booking.escrow.depositUnits) };
+  return { organizationId: String(booking.organizationId), refunded: cancelled.refunded, depositTnd: unitsToTnd(booking.escrow.depositUnits) };
 }
 
 // Prestation réalisée (COMPLETED) ou client absent (NO_SHOW), signé par le wallet du membre de l'équipe.

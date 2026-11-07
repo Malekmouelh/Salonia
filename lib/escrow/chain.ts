@@ -142,6 +142,62 @@ export async function treasuryOf(centerChainId: number) {
 
 export const walletAddress = (walletIndex: number) => userAccount(requireEscrowConfig(), walletIndex).address;
 
+export async function tokenBalanceOf(address: Address) {
+  const config = requireEscrowConfig();
+  return read(() => publicClient(config).readContract({ address: config.token, abi: mockTndAbi, functionName: "balanceOf", args: [address] }));
+}
+
+// Solde retirable dans le contrat (remboursements ou acomptes reçus par un salon), retiré avec withdraw.
+export async function escrowBalanceOf(address: Address) {
+  const config = requireEscrowConfig();
+  return read(() => publicClient(config).readContract({ address: config.contract, abi: bookingEscrowAbi, functionName: "balanceOf", args: [address] }));
+}
+
+export async function ethBalanceOf(address: Address) {
+  const config = requireEscrowConfig();
+  return read(() => publicClient(config).getBalance({ address }));
+}
+
+// Gaz de test pour un wallet MetaMask relié (testnet uniquement) : l'administrateur l'alimente si besoin.
+export async function fundGas(address: Address) {
+  await ensureGas(requireEscrowConfig(), address);
+}
+
+// ─────────────── Transactions signées par MetaMask : relues et vérifiées ici ───────────────
+// Le serveur ne croit jamais le navigateur sur parole : il relit le reçu sur la chaîne, vérifie que la
+// transaction a réussi, qu'elle vise bien CE contrat, et lit l'événement émis par le contrat lui-même.
+
+async function contractReceipt(txHash: Hash) {
+  const config = requireEscrowConfig();
+  const receipt = await read(() => publicClient(config).getTransactionReceipt({ hash: txHash }));
+  if (receipt.status !== "success" || receipt.to?.toLowerCase() !== config.contract.toLowerCase()) {
+    throw new EscrowError("Transaction introuvable ou refusée par le contrat.");
+  }
+  return receipt;
+}
+
+export async function bookingCreatedInTx(txHash: Hash) {
+  const receipt = await contractReceipt(txHash);
+  const [event] = parseEventLogs({ abi: bookingEscrowAbi, eventName: "BookingCreated", logs: receipt.logs });
+  if (!event) throw new EscrowError("Cette transaction ne crée aucune réservation.");
+  const a = event.args;
+  return {
+    chainBookingId: Number(a.bookingId),
+    client: a.client,
+    centerId: a.centerId,
+    practitionerId: a.practitionerId,
+    startTime: Number(a.startTime),
+    deposit: a.deposit,
+  };
+}
+
+export async function bookingCancelledInTx(txHash: Hash) {
+  const receipt = await contractReceipt(txHash);
+  const [event] = parseEventLogs({ abi: bookingEscrowAbi, eventName: "BookingCancelled", logs: receipt.logs });
+  if (!event) throw new EscrowError("Cette transaction n'annule aucune réservation.");
+  return { chainBookingId: Number(event.args.bookingId), client: event.args.client, refunded: event.args.refunded };
+}
+
 // ─────────────────────────────── Écritures ──────────────────────────────
 
 export type CreatedOnChain = { chainBookingId: number; depositUnits: string; clientAddress: Address; txHash: Hash };

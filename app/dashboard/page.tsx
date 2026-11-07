@@ -11,6 +11,8 @@ import { SecurityLog } from "@/components/dashboard/security-log";
 import { SalonDirectory } from "@/components/salons/salon-directory";
 import { getSalonDirectory } from "@/lib/data/salons";
 import { MyBookings, TodayPanel } from "@/components/dashboard/today";
+import { WalletCard } from "@/components/wallet/metamask";
+import { getEscrowWebConfig, getMyWalletInfo } from "@/app/actions/wallet";
 import { T } from "@/components/i18n/i18n-provider";
 import { Aurora } from "@/components/ui/aurora";
 import {
@@ -75,13 +77,16 @@ export default function DashboardPage({ searchParams }: PageProps<"/dashboard">)
 async function Dashboard({ searchParams }: { searchParams: PageProps<"/dashboard">["searchParams"] }) {
   const user = await getCurrentUser();
   const isClient = user.role === "CLIENT";
-  const [centers, events, params, today, myBookings, salons] = await Promise.all([
+  const [centers, events, params, today, myBookings, salons, escrowWeb, wallet] = await Promise.all([
     getVisibleCenters(user),
     getSecurityEvents(user),
     searchParams,
     user.role === "CLIENT" ? Promise.resolve(null) : getTodayOverview(user),
     user.role === "CLIENT" ? getMyBookings(user) : Promise.resolve([]),
     isClient ? getSalonDirectory() : Promise.resolve([]),
+    // SalonEscrow + MetaMask : réseau et contrats (publics), wallet relié et soldes lus sur la chaîne.
+    isClient ? getEscrowWebConfig() : Promise.resolve(null),
+    isClient ? getMyWalletInfo() : Promise.resolve(null),
   ]);
   // Client : lien vers le dernier salon où il a réservé.
   const bookingUrl = user.organization
@@ -152,7 +157,16 @@ async function Dashboard({ searchParams }: { searchParams: PageProps<"/dashboard
       </section>
 
       {today && <TodayPanel overview={today} bookingUrl={bookingUrl} />}
-      {isClient && <MyBookings bookings={myBookings} bookingUrl={bookingUrl} />}
+      {isClient && <MyBookings bookings={myBookings} bookingUrl={bookingUrl} escrowWeb={escrowWeb} />}
+      {/* key : carte recréée quand le compte, le wallet ou les soldes changent (réservation, annulation, retrait),
+          sinon React garderait l'état affiché précédemment. */}
+      {isClient && wallet && (
+        <WalletCard
+          key={[user.id, wallet.address, wallet.balances?.mockTnd, wallet.balances?.claimable, wallet.balances?.eth].join(":")}
+          cfg={escrowWeb}
+          initial={wallet}
+        />
+      )}
 
       {/* Espace client : quelques salons à découvrir, puis l'annuaire complet. */}
       {isClient && (

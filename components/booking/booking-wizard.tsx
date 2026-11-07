@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { createOnlineBooking, getEscrowSlotStatus, getPublicMonthAvailability, getPublicSlots, joinPublicWaitlist, validatePromoCodeAction } from "@/app/actions/public-booking";
+import { abandonEscrowBooking, confirmEscrowBooking, createOnlineBooking, getEscrowSlotStatus, getPublicMonthAvailability, getPublicSlots, joinPublicWaitlist, validatePromoCodeAction } from "@/app/actions/public-booking";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, PinIcon, SparkleIcon } from "@/components/ui/icons";
 import type { Slot } from "@/lib/booking/availability";
@@ -14,6 +14,9 @@ import { encodeDraft, type BookingDraft } from "@/lib/booking/draft";
 import type { BookingClient } from "@/lib/data/booking-client";
 import type { EscrowOffer, EscrowSummary } from "@/lib/escrow/service";
 import { BookingSuccess } from "./booking-success";
+import type { EscrowWebConfig } from "@/app/actions/wallet";
+import { LinkWalletButton } from "@/components/wallet/metamask";
+import { bookWithMetaMask, metaMaskMessage, type BookingSteps } from "@/lib/wallet/browser";
 import { EscrowDepositNotice } from "./escrow-deposit";
 
 const STEPS = ["Prestation", "Praticien", "Créneau", "Confirmation"];
@@ -76,16 +79,21 @@ function getPackPrice(pack: PublicSalon["packs"][number], centerId: string): num
 export type BookingDone = { bookingId: string; start: string; manageUrl: string; staffName: string; totalTnd: number; escrow: EscrowSummary | null };
 
 // escrow : centres qui utilisent l'acompte sécurisé par la blockchain (SalonEscrow), avec leur acompte.
+// escrowWeb / walletAddress : MetaMask (réseau, contrats) et wallet relié au compte client connecté.
 export function BookingWizard({
   salon,
   client,
   draft,
   escrow = {},
+  escrowWeb = null,
+  walletAddress = null,
 }: {
   salon: PublicSalon;
   client: BookingClient;
   draft: BookingDraft | null;
   escrow?: Record<string, EscrowOffer>;
+  escrowWeb?: EscrowWebConfig | null;
+  walletAddress?: string | null;
 }) {
   const { t, lang } = useI18n();
   // Reprise après connexion / inscription : directement à l'étape de confirmation.
@@ -190,6 +198,7 @@ export function BookingWizard({
           {step === 2 && center.practitioners.length > 0 && <StepSlot salon={salon} choice={choice} selection={selection} day={day} setDay={setDay} slot={slot} setSlot={setSlot} />}
           {step === 3 && slot && (
             <StepDetails
+              key={walletAddress ?? "sans-wallet"}
               salon={salon}
               client={client}
               choice={choice}
@@ -200,6 +209,8 @@ export function BookingWizard({
               setAppliedPromo={setAppliedPromo}
               viaChatbot={viaChatbot}
               escrowOffer={escrowOffer}
+              escrowWeb={escrowWeb}
+              initialWallet={walletAddress}
               onDone={setDone}
             />
           )}
@@ -803,6 +814,8 @@ function StepDetails({
   setAppliedPromo,
   viaChatbot,
   escrowOffer,
+  escrowWeb,
+  initialWallet,
   onDone,
 }: {
   salon: PublicSalon;
@@ -815,9 +828,15 @@ function StepDetails({
   setAppliedPromo: (p: AppliedPromo | null) => void;
   viaChatbot: boolean;
   escrowOffer: EscrowOffer | null;
+  escrowWeb: EscrowWebConfig | null;
+  initialWallet: string | null;
   onDone: (d: BookingDone) => void;
 }) {
   const { t, lang } = useI18n();
+  // Acompte sécurisé : MetaMask obligatoire. Le wallet doit être relié au compte avant de confirmer.
+  const [wallet, setWallet] = useState<string | null>(initialWallet);
+  const [chainStep, setChainStep] = useState<BookingSteps | "verify" | null>(null);
+  const needsWallet = escrowOffer !== null && client?.kind === "client" && !wallet;
   // Acompte sécurisé : vérifie sur la chaîne que le créneau du praticien choisi est encore libre (isSlotFree).
   const [slotFree, setSlotFree] = useState<boolean | null | undefined>(undefined);
   useEffect(() => {
@@ -888,9 +907,34 @@ function StepDetails({
         viaChatbot,
         ...form,
       });
-      if (r.ok) onDone({ bookingId: r.bookingId, start: r.start, manageUrl: r.manageUrl, staffName: r.staffName, totalTnd: r.totalTnd, escrow: r.escrow });
-      else setError({ text: r.error, field: r.field });
+      if (!r.ok) return setError({ text: r.error, field: r.field });
+      const base = { bookingId: r.bookingId, start: r.start, manageUrl: r.manageUrl, staffName: r.staffName, totalTnd: r.totalTnd };
+      if (!r.escrowIntent) return onDone({ ...base, escrow: null });
+
+      // Acompte sécurisé : MetaMask signe (jetons de test si besoin, approve, createBooking),
+      // puis le serveur relit la transaction sur la chaîne avant de confirmer le rendez-vous.
+      if (!escrowWeb) return setError({ text: "La connexion MetaMask n'est pas activée sur ce serveur." });
+      let txHash: string;
+      try {
+        txHash = await bookWithMetaMask(escrowWeb, r.escrowIntent, setChainStep);
+      } catch (e) {
+        setChainStep(null);
+        await abandonEscrowBooking(r.bookingId);
+        return setError({ text: metaMaskMessage(e) });
+      }
+      setChainStep("verify");
+      const confirmed = await confirmEscrowBooking({ bookingId: r.bookingId, txHash });
+      setChainStep(null);
+      if (!confirmed.ok) return setError({ text: confirmed.error });
+      onDone({ ...base, escrow: confirmed.escrow });
     });
+  };
+
+  const chainStepLabel: Record<BookingSteps | "verify", string> = {
+    tokens: "Étape 1/3 : jetons de test MockTND, validez dans MetaMask…",
+    approve: "Étape 2/3 : autorisez l'acompte dans MetaMask…",
+    book: "Étape 3/3 : confirmez la réservation dans MetaMask…",
+    verify: "Vérification de la transaction sur la blockchain…",
   };
 
   return (
@@ -964,6 +1008,21 @@ function StepDetails({
       </div>
 
       {escrowOffer && <EscrowDepositNotice offer={escrowOffer} slotFree={slotFree} />}
+      {escrowOffer && client?.kind === "client" && (
+        <div className="mt-3 rounded-2xl border border-[#f6851b]/30 bg-[#f6851b]/[0.06] p-4 text-sm text-white/70">
+          {wallet ? (
+            <p>
+              🦊 {t("Wallet MetaMask relié")} · <bdi className="font-mono text-xs" dir="ltr">{`${wallet.slice(0, 6)}…${wallet.slice(-4)}`}</bdi> —{" "}
+              {t("vous validerez l'acompte dans MetaMask.")}
+            </p>
+          ) : (
+            <>
+              <p className="mb-3">{t("L'acompte sécurisé se paie avec MetaMask : reliez votre wallet à votre compte (une signature, sans frais).")}</p>
+              <LinkWalletButton cfg={escrowWeb} onLinked={setWallet} />
+            </>
+          )}
+        </div>
+      )}
 
       <label className="mt-4 flex items-start gap-3 text-sm text-white/70">
         <input type="checkbox" checked={form.remindersConsent} onChange={(e) => setForm({ ...form, remindersConsent: e.target.checked })} className="mt-1 accent-rose-gold" />
@@ -974,16 +1033,16 @@ function StepDetails({
         <>
           <button
             type="button"
-            disabled={pending || (escrowOffer !== null && (!escrowOffer.depositTnd || slotFree === false))}
+            disabled={pending || needsWallet || (escrowOffer !== null && (!escrowOffer.depositTnd || slotFree === false))}
             onClick={submit}
             className="btn-shine mt-6 flex h-14 w-full items-center justify-center gap-2 rounded-2xl font-semibold text-plum-950 disabled:opacity-70"
           >
             {pending ? <span className="h-5 w-5 animate-spin rounded-full border-2 border-plum-950/30 border-t-plum-950" /> : <CheckIcon />}
-            {escrowOffer ? t("Confirmer et bloquer l'acompte") : t("Confirmer ma réservation")}
+            {escrowOffer ? t("Confirmer et payer l'acompte avec MetaMask") : t("Confirmer ma réservation")}
           </button>
           {pending && escrowOffer && (
             <p className="mt-2 text-center text-xs text-white/50" role="status">
-              {t("Transaction en cours sur la blockchain… cela peut prendre quelques secondes.")}
+              {t(chainStep ? chainStepLabel[chainStep] : "Préparation de la réservation…")}
             </p>
           )}
         </>
