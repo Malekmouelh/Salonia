@@ -95,7 +95,7 @@ Page de réservation publique : `/reserver/salon-yasmine`
 - **Prédiction des absences** : régression logistique entraînée sur l'historique du salon
   (`lib/booking/noshow.ts`), score + facteurs explicatifs, qualité mesurée par l'AUC sur les 20 % les plus récents.
 - **Créneaux à remplir** : trous ≥ 45 min sur 7 jours, associés à la liste d'attente et aux habitués à relancer.
-- **Chatbot de réservation** : Claude avec deux outils (`find_slots`, `propose_booking`), repli par mots-clés FR/AR.
+- **Chatbot de réservation** : **Google Gemini** (`GEMINI_API_KEY`, offre gratuite) en priorité, sinon Claude (`ANTHROPIC_API_KEY`), sinon repli par mots-clés FR/AR. Le modèle appelle deux outils (`find_slots`, `propose_booking`) : les créneaux viennent toujours de notre algorithme, en heure de Tunis.
   L'IA propose, le client confirme.
 
 **Compte client obligatoire pour confirmer** : le parcours `/reserver/[slug]` est ouvert à tous (prestations,

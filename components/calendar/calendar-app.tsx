@@ -1,26 +1,27 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { sendRemindersNow, type ActionResult } from "@/app/actions/bookings";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { ArrowLeftIcon, ArrowRightIcon, PlusIcon } from "@/components/ui/icons";
 import { Toast } from "@/components/ui/modal";
 import { fmtDay, fmtMonth } from "@/lib/booking/format";
-import { addDays, dayKey, parseDayKey } from "@/lib/booking/time";
+import { addDays, calendarRange, dayKey, parseDayKey } from "@/lib/booking/time";
 import type { CalendarBlock, CalendarBooking, CalendarData, CalendarView, FillSuggestion, PackOption, ServiceOption } from "@/lib/booking/types";
 import { AiPanel } from "./ai-panel";
 import { BlockDetail, BlockForm } from "./block-form";
 import { BookingDrawer } from "./booking-drawer";
 import { BookingForm, type BookingDraft } from "./booking-form";
 import { MonthGrid } from "./month-grid";
+import { MonthPicker } from "./month-picker";
 import { TimeGrid } from "./time-grid";
 
 type WaitlistItem = { id: string; day: string; status: "WAITING" | "OFFERED"; customer: { id: string; name: string; phone: string }; service: string };
 
 // F3.1 — Calendrier par centre et par praticien, vues jour / semaine / mois.
 export function CalendarApp({
-  data,
+  data: serverData,
   services,
   packs,
   suggestions,
@@ -45,6 +46,32 @@ export function CalendarApp({
   const [block, setBlock] = useState<CalendarBlock | null>(null);
   const [toast, setToast] = useState<{ tone: "success" | "error"; text: string } | null>(null);
 
+  // Vue et jour affichés, gérés dans le navigateur. Le serveur a chargé toute la grille du mois
+  // (loadedStart → loadedEnd) : changer de vue ou avancer dans ce mois ne fait aucune requête.
+  const [nav, setNav] = useState({ view: serverData.view, date: serverData.date });
+  // Nouvelles données du serveur (autre mois, autre centre, ou synchronisation) : on s'y aligne.
+  const [syncedFrom, setSyncedFrom] = useState(serverData);
+  if (syncedFrom !== serverData) {
+    setSyncedFrom(serverData);
+    setNav({ view: serverData.view, date: serverData.date });
+  }
+
+  const data: CalendarData = useMemo(() => {
+    const range = calendarRange(nav.view, parseDayKey(nav.date)!);
+    const from = range.start.toISOString();
+    const to = range.end.toISOString();
+    const inRange = (x: { start: string; end: string }) => x.start < to && x.end > from;
+    return {
+      ...serverData,
+      view: nav.view,
+      date: nav.date,
+      rangeStart: from,
+      rangeEnd: to,
+      bookings: serverData.bookings.filter(inRange),
+      blocks: serverData.blocks.filter(inRange),
+    };
+  }, [serverData, nav]);
+
   const go = useCallback(
     (patch: Record<string, string | null>) => {
       const next = new URLSearchParams(params);
@@ -52,10 +79,52 @@ export function CalendarApp({
         if (v) next.set(k, v);
         else next.delete(k);
       }
-      startNav(() => router.push(`/dashboard/calendar?${next.toString()}`, { scroll: false }));
+      const url = `/dashboard/calendar?${next.toString()}`;
+      // Seuls la vue et le jour changent, et la nouvelle période est déjà chargée : affichage immédiat.
+      const onlyViewOrDate = Object.keys(patch).every((k) => k === "view" || k === "date");
+      if (onlyViewOrDate) {
+        const view = (next.get("view") as CalendarView | null) ?? "week";
+        const date = next.get("date") ?? nav.date;
+        const range = calendarRange(view, parseDayKey(date)!);
+        if (range.start.toISOString() >= serverData.loadedStart && range.end.toISOString() <= serverData.loadedEnd) {
+          setNav({ view, date });
+          window.history.pushState(null, "", url); // adresse à jour (partage, retour arrière), sans requête
+          return;
+        }
+      }
+      startNav(() => router.push(url, { scroll: false }));
     },
-    [params, router],
+    [params, router, nav.date, serverData.loadedStart, serverData.loadedEnd],
   );
+
+  // Synchronisation : au retour sur l'onglet et toutes les 60 s quand la page est visible,
+  // pour voir les réservations faites ailleurs (en ligne, chatbot, autre membre du salon).
+  useEffect(() => {
+    const sync = () => {
+      if (document.visibilityState === "visible") router.refresh();
+    };
+    const timer = window.setInterval(sync, 60_000);
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", sync);
+    };
+  }, [router]);
+
+  // Bouton « Retour » du navigateur : on relit la vue et le jour dans l'adresse.
+  useEffect(() => {
+    const onPop = () => {
+      const q = new URLSearchParams(window.location.search);
+      const view = (q.get("view") as CalendarView | null) ?? "week";
+      const date = q.get("date") ?? serverData.date;
+      const range = calendarRange(view, parseDayKey(date) ?? parseDayKey(serverData.date)!);
+      if (range.start.toISOString() >= serverData.loadedStart && range.end.toISOString() <= serverData.loadedEnd) {
+        setNav({ view, date });
+      } else router.refresh();
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [router, serverData.date, serverData.loadedStart, serverData.loadedEnd]);
 
   const onResult = useCallback(
     (r: ActionResult) => {
@@ -91,7 +160,7 @@ export function CalendarApp({
   return (
     <div className="mt-6 space-y-5">
       {/* Barre d'outils */}
-      <div className="flex flex-wrap items-center justify-between gap-3 animate-fade-up">
+      <div className="relative z-30 flex flex-wrap items-center justify-between gap-3 animate-fade-up">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1 rounded-2xl border border-white/10 bg-white/[0.04] p-1">
             <button type="button" onClick={() => shift(-1)} className="grid h-9 w-9 place-items-center rounded-xl text-white/70 hover:bg-white/10 hover:text-white" aria-label={t("Précédent")}>
@@ -104,7 +173,7 @@ export function CalendarApp({
               <ArrowRightIcon width={18} height={18} className="rtl:-scale-x-100" />
             </button>
           </div>
-          <h1 className="font-display text-2xl capitalize text-white sm:text-3xl">{title}</h1>
+          <MonthPicker title={title} date={data.date} onSelect={(day) => go({ view: "month", date: day })} />
           {navigating && <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-champagne" />}
         </div>
 

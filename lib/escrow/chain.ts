@@ -191,6 +191,45 @@ export async function bookingCreatedInTx(txHash: Hash) {
   };
 }
 
+// La transaction existe-t-elle sur la chaîne actuelle ? (false après un redémarrage du nœud Hardhat local)
+export async function transactionExists(txHash: Hash) {
+  const config = requireEscrowConfig();
+  try {
+    await publicClient(config).getTransactionReceipt({ hash: txHash });
+    return true;
+  } catch (error) {
+    if (error instanceof Error && /could not be found|not found/i.test(error.message)) return false;
+    throw toEscrowError(error);
+  }
+}
+
+// Réservations créées sur le contrat par un wallet (événement BookingCreated, client indexé), avec leur transaction.
+// Sur un réseau public, on se limite aux ~7 derniers jours de blocs (les fournisseurs RPC bornent les recherches).
+export async function bookingsCreatedBy(client: Address) {
+  const config = requireEscrowConfig();
+  return read(async () => {
+    const pc = publicClient(config);
+    const latest = await pc.getBlockNumber();
+    const span = BigInt(50_000);
+    const fromBlock = config.network === "hardhat" || latest < span ? BigInt(0) : latest - span;
+    const logs = await pc.getContractEvents({
+      address: config.contract,
+      abi: bookingEscrowAbi,
+      eventName: "BookingCreated",
+      args: { client },
+      fromBlock,
+      toBlock: latest,
+    });
+    return logs.map((l) => ({
+      txHash: l.transactionHash,
+      chainBookingId: Number(l.args.bookingId),
+      centerId: Number(l.args.centerId),
+      practitionerId: Number(l.args.practitionerId),
+      startTime: Number(l.args.startTime),
+    }));
+  });
+}
+
 export async function bookingCancelledInTx(txHash: Hash) {
   const receipt = await contractReceipt(txHash);
   const [event] = parseEventLogs({ abi: bookingEscrowAbi, eventName: "BookingCancelled", logs: receipt.logs });

@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 import { z } from "zod";
 import { getDaySlots, getRangeSlotCounts, isSlotAvailable, pickLeastBusy, type Slot } from "@/lib/booking/availability";
-import { BookingError, createBooking, hashManageToken, resolveItems, upsertCustomer } from "@/lib/booking/create";
+import { BookingError, createBooking, hashManageToken, renewManageLink, resolveItems, upsertCustomer } from "@/lib/booking/create";
 import { addDays, addMinutes, parseDayKey, startOfLocalDay } from "@/lib/booking/time";
 import { connectDB } from "@/lib/db";
 import { isPhone, normalizePhone } from "@/lib/definitions";
@@ -20,8 +20,10 @@ import {
   abandonEscrowIntent,
   confirmEscrowFromTx,
   escrowCenterChainId,
+  findMyEscrowHold,
   isSlotFreeOnChain,
   prepareEscrowIntent,
+  recoverEscrowHold,
   releaseExpiredHolds,
   rollbackUnpaidBooking,
   type EscrowIntent,
@@ -167,6 +169,8 @@ export type OnlineBookingResult =
       totalTnd: number;
       // Acompte sécurisé : ce que MetaMask doit signer ; le rendez-vous reste PENDING jusqu'à confirmEscrowBooking.
       escrowIntent: EscrowIntent | null;
+      // Acompte déjà payé et retrouvé sur la chaîne (réservation reprise) : rien à signer.
+      escrow?: EscrowSummary | null;
     }
   | { ok?: false; error: string; field?: string };
 
@@ -177,7 +181,14 @@ export async function getEscrowSlotStatus(input: { slug: string; centerId: strin
   const start = new Date(input.start);
   if (!org || !isObjectId(input.centerId) || !isObjectId(input.staffId) || Number.isNaN(start.getTime())) return { free: null };
   try {
-    return { free: await isSlotFreeOnChain({ organizationId: org.id, centerId: input.centerId, staffId: input.staffId!, start }) };
+    const free = await isSlotFreeOnChain({ organizationId: org.id, centerId: input.centerId, staffId: input.staffId!, start });
+    if (free !== false) return { free };
+    // Pris sur la chaîne… par la réservation en attente du client connecté lui-même : il peut la reprendre.
+    const client = await getBookingClient();
+    if (client?.kind === "client" && (await findMyEscrowHold({ organizationId: org.id, centerId: input.centerId, clientUserId: client.id, start }))) {
+      return { free: true };
+    }
+    return { free: false };
   } catch {
     return { free: null };
   }
@@ -212,6 +223,34 @@ export async function createOnlineBooking(input: z.input<typeof OnlineBookingSch
   // Acompte sécurisé : MetaMask obligatoire (le client signe lui-même ses transactions).
   if (escrowCenter && !(await getLinkedWallet(client.id))) return { error: NO_WALLET, field: "wallet" };
   if (escrowCenter) await releaseExpiredHolds();
+
+  // Le client relance le même créneau (page rechargée pendant MetaMask, deuxième clic…) : on reprend SA réservation
+  // en attente au lieu de la refuser. Acompte déjà payé sur la chaîne → confirmée ; sinon → MetaMask à signer.
+  if (escrowCenter) {
+    const hold = await findMyEscrowHold({ organizationId: org.id, centerId: d.centerId, clientUserId: client.id, start });
+    if (hold) {
+      const bookingId = String(hold._id);
+      try {
+        const recovered = await recoverEscrowHold({ clientUserId: client.id, bookingId });
+        const escrowIntent = recovered ? null : await prepareEscrowIntent({ organizationId: org.id, bookingId, clientUserId: client.id });
+        const manageUrl = await renewManageLink(bookingId, await baseUrl());
+        const saved = await Booking.findById(bookingId).populate<{ staffId: { firstName: string } }>("staffId", "firstName").lean();
+        return {
+          ok: true,
+          bookingId,
+          manageUrl,
+          start: saved!.start.toISOString(),
+          staffName: saved?.staffId.firstName ?? "",
+          totalTnd: saved!.totalTnd,
+          escrowIntent,
+          escrow: recovered,
+        };
+      } catch (e) {
+        if (e instanceof EscrowError) return { error: e.message };
+        throw e;
+      }
+    }
+  }
 
   try {
     const selection = toSelection(d.selection);

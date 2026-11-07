@@ -3,6 +3,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { redirect } from "next/navigation";
+import { z } from "zod";
 import { offlineSetup } from "@/lib/ai/offline-setup";
 import { SetupProposalSchema, type ProposalSource, type SetupProposal } from "@/lib/ai/setup-schema";
 import { logEvent } from "@/lib/audit";
@@ -31,6 +32,36 @@ function allowCall(userId: string) {
   if (recent.length >= MAX_CALLS_PER_HOUR) return false;
   calls.set(userId, [...recent, now]);
   return true;
+}
+
+// Google Gemini (GEMINI_API_KEY, offre gratuite) : réponse JSON imposée par le même schéma que Claude,
+// puis revalidée par Zod — une réponse mal formée est rejetée et l'on passe au moteur suivant.
+const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
+
+async function askGemini(description: string): Promise<SetupProposal | null> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return null;
+  const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents: [{ role: "user", parts: [{ text: description }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseJsonSchema: z.toJSONSchema(SetupProposalSchema),
+        maxOutputTokens: 8192,
+      },
+    }),
+    signal: AbortSignal.timeout(45_000),
+  });
+  if (!res.ok) throw new Error(`Gemini ${res.status} : ${(await res.text()).slice(0, 300)}`);
+  const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  const text = (data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
+  const parsed = SetupProposalSchema.safeParse(JSON.parse(text));
+  if (!parsed.success) throw new Error("Gemini : réponse hors schéma.");
+  return parsed.data;
 }
 
 async function askClaude(description: string): Promise<SetupProposal | null> {
@@ -65,6 +96,14 @@ export async function generateSetup(_state: AssistantState, formData: FormData):
   }
   if (!allowCall(user.id)) {
     return { error: "Limite atteinte : réessayez dans une heure.", description };
+  }
+
+  // Ordre des moteurs : Gemini, puis Claude, puis la proposition hors ligne.
+  try {
+    const proposal = await askGemini(description);
+    if (proposal) return { proposal, source: "ai", description };
+  } catch (error) {
+    console.error("Assistant Gemini indisponible :", error instanceof Error ? error.message : error);
   }
 
   try {

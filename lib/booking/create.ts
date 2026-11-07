@@ -295,3 +295,11 @@ export async function createBooking(params: {
 
   return { booking, token, manageUrl };
 }
+
+// Nouveau lien personnel (annuler / reporter) pour un rendez-vous existant : l'ancien jeton cesse de fonctionner.
+export async function renewManageLink(bookingId: string, baseUrl: string) {
+  await connectDB();
+  const token = randomBytes(24).toString("base64url");
+  await Booking.updateOne({ _id: bookingId }, { $set: { manageTokenHash: hashManageToken(token) } });
+  return `${baseUrl}/reservation/${token}`;
+}

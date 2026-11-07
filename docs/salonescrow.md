@@ -84,8 +84,8 @@ Règles appliquées (vérifiées par Salonia **et** par le contrat) :
 cd ../SalonEscrow && npm install && npx hardhat compile && npx hardhat node
 # 2. Salonia : base LOCALE uniquement (jamais la base partagée)
 MONGODB_URI=mongodb://127.0.0.1:27017 MONGODB_DB=salonia_demo npx tsx --conditions=react-server scripts/escrow-dev.ts salon-yasmine 30
-# 3. Démarrer avec les variables écrites dans .env.escrow.local (ignoré par Git)
-set -a && . ./.env.escrow.local && set +a && MONGODB_URI=mongodb://127.0.0.1:27017 MONGODB_DB=salonia_demo npm run dev
+# 3. Démarrer en mode blockchain (Windows, macOS, Linux) : charge .env.escrow.local + base locale salonia_demo
+npm run dev:blockchain
 ```
 
 **MetaMask en local** (navigateur Chrome avec l'extension MetaMask) :
