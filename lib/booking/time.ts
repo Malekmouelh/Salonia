@@ -107,3 +107,17 @@ export function hoursForDay(openingHours: Record<string, string | null> | null |
 export function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
   return aStart < bEnd && bStart < aEnd;
 }
+
+// Période affichée par le calendrier (jour, semaine ou grille complète du mois, du lundi au dimanche).
+export function calendarRange(view: "day" | "week" | "month", ref: Date) {
+  if (view === "day") return { start: startOfLocalDay(ref), end: addDays(startOfLocalDay(ref), 1) };
+  if (view === "week") {
+    const start = startOfLocalWeek(ref);
+    return { start, end: addDays(start, 7) };
+  }
+  const first = startOfLocalMonth(ref);
+  const start = startOfLocalWeek(first);
+  const nextMonth = startOfLocalMonth(addDays(first, 32));
+  const end = addDays(startOfLocalWeek(addDays(nextMonth, -1)), 7);
+  return { start, end };
+}

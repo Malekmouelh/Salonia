@@ -43,6 +43,8 @@ export type CalendarData = {
   date: string; // jour de référence YYYY-MM-DD
   rangeStart: string;
   rangeEnd: string;
+  loadedStart: string; // période réellement chargée (grille du mois) : navigation locale à l'intérieur
+  loadedEnd: string;
   center: { id: string; name: string; openingHours: Record<string, string | null> | null };
   centers: { id: string; name: string }[];
   practitioners: PractitionerInfo[];

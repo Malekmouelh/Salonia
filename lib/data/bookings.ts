@@ -11,8 +11,7 @@ import {
   overlaps,
   parseDayKey,
   startOfLocalDay,
-  startOfLocalMonth,
-  startOfLocalWeek,
+  calendarRange,
 } from "@/lib/booking/time";
 import type {
   CalendarData,
@@ -47,19 +46,6 @@ export function resolveCenterId(user: CurrentUser, centerId?: string | null) {
   return allowed[0] ?? null;
 }
 
-function rangeFor(view: CalendarView, ref: Date) {
-  if (view === "day") return { start: startOfLocalDay(ref), end: addDays(startOfLocalDay(ref), 1) };
-  if (view === "week") {
-    const start = startOfLocalWeek(ref);
-    return { start, end: addDays(start, 7) };
-  }
-  // Mois : grille complète du lundi précédant le 1er au dimanche suivant la fin du mois.
-  const first = startOfLocalMonth(ref);
-  const start = startOfLocalWeek(first);
-  const nextMonth = startOfLocalMonth(addDays(first, 32));
-  const end = addDays(startOfLocalWeek(addDays(nextMonth, -1)), 7);
-  return { start, end };
-}
 
 export async function getCalendarData(
   user: CurrentUser,
@@ -71,7 +57,12 @@ export async function getCalendarData(
 
   const view: CalendarView = params.view === "day" || params.view === "month" ? params.view : "week";
   const ref = (params.date && parseDayKey(params.date)) || startOfLocalDay(new Date());
-  const { start, end } = rangeFor(view, ref);
+  const { start: viewStart, end: viewEnd } = calendarRange(view, ref);
+  // On charge toute la grille du mois (elle contient le jour et la semaine affichés) : passer de la vue
+  // jour à semaine à mois, ou avancer dans le mois, se fait ensuite dans le navigateur sans requête.
+  const month = calendarRange("month", ref);
+  const start = month.start < viewStart ? month.start : viewStart;
+  const end = month.end > viewEnd ? month.end : viewEnd;
   const organizationId = user.organization.id;
 
   const [center, practitionersRaw, model] = await Promise.all([
@@ -117,8 +108,10 @@ export async function getCalendarData(
   return {
     view,
     date: dayKey(ref),
-    rangeStart: start.toISOString(),
-    rangeEnd: end.toISOString(),
+    rangeStart: viewStart.toISOString(),
+    rangeEnd: viewEnd.toISOString(),
+    loadedStart: start.toISOString(),
+    loadedEnd: end.toISOString(),
     center: {
       id: centerId,
       name: center.name,

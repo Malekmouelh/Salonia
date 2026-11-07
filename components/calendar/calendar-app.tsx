@@ -1,13 +1,13 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { sendRemindersNow, type ActionResult } from "@/app/actions/bookings";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { ArrowLeftIcon, ArrowRightIcon, PlusIcon } from "@/components/ui/icons";
 import { Toast } from "@/components/ui/modal";
 import { fmtDay, fmtMonth } from "@/lib/booking/format";
-import { addDays, dayKey, parseDayKey } from "@/lib/booking/time";
+import { addDays, calendarRange, dayKey, parseDayKey } from "@/lib/booking/time";
 import type { CalendarBlock, CalendarBooking, CalendarData, CalendarView, FillSuggestion, PackOption, ServiceOption } from "@/lib/booking/types";
 import { AiPanel } from "./ai-panel";
 import { BlockDetail, BlockForm } from "./block-form";
@@ -20,7 +20,7 @@ type WaitlistItem = { id: string; day: string; status: "WAITING" | "OFFERED"; cu
 
 // F3.1 — Calendrier par centre et par praticien, vues jour / semaine / mois.
 export function CalendarApp({
-  data,
+  data: serverData,
   services,
   packs,
   suggestions,
@@ -45,6 +45,32 @@ export function CalendarApp({
   const [block, setBlock] = useState<CalendarBlock | null>(null);
   const [toast, setToast] = useState<{ tone: "success" | "error"; text: string } | null>(null);
 
+  // Vue et jour affichés, gérés dans le navigateur. Le serveur a chargé toute la grille du mois
+  // (loadedStart → loadedEnd) : changer de vue ou avancer dans ce mois ne fait aucune requête.
+  const [nav, setNav] = useState({ view: serverData.view, date: serverData.date });
+  // Nouvelles données du serveur (autre mois, autre centre, ou synchronisation) : on s'y aligne.
+  const [syncedFrom, setSyncedFrom] = useState(serverData);
+  if (syncedFrom !== serverData) {
+    setSyncedFrom(serverData);
+    setNav({ view: serverData.view, date: serverData.date });
+  }
+
+  const data: CalendarData = useMemo(() => {
+    const range = calendarRange(nav.view, parseDayKey(nav.date)!);
+    const from = range.start.toISOString();
+    const to = range.end.toISOString();
+    const inRange = (x: { start: string; end: string }) => x.start < to && x.end > from;
+    return {
+      ...serverData,
+      view: nav.view,
+      date: nav.date,
+      rangeStart: from,
+      rangeEnd: to,
+      bookings: serverData.bookings.filter(inRange),
+      blocks: serverData.blocks.filter(inRange),
+    };
+  }, [serverData, nav]);
+
   const go = useCallback(
     (patch: Record<string, string | null>) => {
       const next = new URLSearchParams(params);
@@ -52,10 +78,52 @@ export function CalendarApp({
         if (v) next.set(k, v);
         else next.delete(k);
       }
-      startNav(() => router.push(`/dashboard/calendar?${next.toString()}`, { scroll: false }));
+      const url = `/dashboard/calendar?${next.toString()}`;
+      // Seuls la vue et le jour changent, et la nouvelle période est déjà chargée : affichage immédiat.
+      const onlyViewOrDate = Object.keys(patch).every((k) => k === "view" || k === "date");
+      if (onlyViewOrDate) {
+        const view = (next.get("view") as CalendarView | null) ?? "week";
+        const date = next.get("date") ?? nav.date;
+        const range = calendarRange(view, parseDayKey(date)!);
+        if (range.start.toISOString() >= serverData.loadedStart && range.end.toISOString() <= serverData.loadedEnd) {
+          setNav({ view, date });
+          window.history.pushState(null, "", url); // adresse à jour (partage, retour arrière), sans requête
+          return;
+        }
+      }
+      startNav(() => router.push(url, { scroll: false }));
     },
-    [params, router],
+    [params, router, nav.date, serverData.loadedStart, serverData.loadedEnd],
   );
+
+  // Synchronisation : au retour sur l'onglet et toutes les 60 s quand la page est visible,
+  // pour voir les réservations faites ailleurs (en ligne, chatbot, autre membre du salon).
+  useEffect(() => {
+    const sync = () => {
+      if (document.visibilityState === "visible") router.refresh();
+    };
+    const timer = window.setInterval(sync, 60_000);
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", sync);
+    };
+  }, [router]);
+
+  // Bouton « Retour » du navigateur : on relit la vue et le jour dans l'adresse.
+  useEffect(() => {
+    const onPop = () => {
+      const q = new URLSearchParams(window.location.search);
+      const view = (q.get("view") as CalendarView | null) ?? "week";
+      const date = q.get("date") ?? serverData.date;
+      const range = calendarRange(view, parseDayKey(date) ?? parseDayKey(serverData.date)!);
+      if (range.start.toISOString() >= serverData.loadedStart && range.end.toISOString() <= serverData.loadedEnd) {
+        setNav({ view, date });
+      } else router.refresh();
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [router, serverData.date, serverData.loadedStart, serverData.loadedEnd]);
 
   const onResult = useCallback(
     (r: ActionResult) => {
