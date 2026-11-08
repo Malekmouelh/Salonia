@@ -220,7 +220,7 @@ export async function getAdminVitrineData(organizationId: string) {
     organization: {
       id: String(org._id),
       name: org.name,
-      slug: org.slug,
+      slug: org.slug || String(org._id),
     },
     theme,
     features,

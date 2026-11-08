@@ -44,6 +44,7 @@ export async function updateThemeAction(
     secondaryColor: String(formData.get("secondaryColor") || "#2a0f25"),
     accentColor: String(formData.get("accentColor") || "#f3d9cf"),
     fontFamily: String(formData.get("fontFamily") || "playfair"),
+    customFontUrl: String(formData.get("customFontUrl") || ""),
     colorMode: String(formData.get("colorMode") || "dark"),
     tagline: String(formData.get("tagline") || ""),
     description: String(formData.get("description") || ""),
