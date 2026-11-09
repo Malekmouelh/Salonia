@@ -40,7 +40,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!parsed.success) return null;
         const user = await findByIdentifier(parsed.data.identifier);
         const valid = await bcrypt.compare(parsed.data.password, user?.passwordHash ?? DUMMY_HASH);
-        if (!user || !valid) return null;
+        if (!user || !valid || user.deactivatedAt) return null; // compte désactivé : connexion refusée
         return {
           id: String(user._id),
           name: `${user.firstName} ${user.lastName}`,
@@ -62,6 +62,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const signature = typeof credentials.signature === "string" ? credentials.signature : "";
         try {
           const { user } = await walletLogin({ message, signature, domain: new URL(request.url).host });
+          if ((user as { deactivatedAt?: Date | null }).deactivatedAt) return null; // compte désactivé
           return {
             id: String(user._id),
             name: `${user.firstName} ${user.lastName}`,

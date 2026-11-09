@@ -10,6 +10,7 @@
     "lint": "eslint",
     "db:seed": "tsx scripts/seed.ts",
     "db:seed:finance": "tsx scripts/seed-finance.ts",
+    "db:seed:team": "tsx scripts/seed-team.ts",
     "db:local": "tsx scripts/local-db.ts",
     "test": "tsx --conditions=react-server --test --test-concurrency=1 \"lib/**/*.test.ts\""
   },

@@ -60,6 +60,11 @@ const EVENTS: Record<AuthEventType, { label: string; tone: string }> = {
   STAFF_TIMEOFF_CREATED: { label: "Absence du personnel enregistrée", tone: "bg-emerald-400" },
   STAFF_TIMEOFF_UPDATED: { label: "Absence du personnel modifiée", tone: "bg-sky-400" },
   STAFF_TIMEOFF_DELETED: { label: "Absence du personnel supprimée", tone: "bg-red-400" },
+  STAFF_UPDATED: { label: "Membre de l'équipe modifié", tone: "bg-sky-400" },
+  STAFF_DEACTIVATED: { label: "Compte de l'équipe désactivé", tone: "bg-red-400" },
+  TEAM_FORECAST_VIEWED: { label: "Prévision de charge (IA)", tone: "bg-champagne" },
+  STAFF_ASSIGNMENT_SUGGESTED: { label: "Suggestion de praticien (IA)", tone: "bg-champagne" },
+  STAFF_PERFORMANCE_ANALYZED: { label: "Analyse de performance (IA)", tone: "bg-champagne" },
   // Module 5 : matériel et stock
   STOCK_PRODUCT_CREATED: { label: "Produit de stock créé", tone: "bg-emerald-400" },
   STOCK_PRODUCT_UPDATED: { label: "Produit de stock modifié", tone: "bg-sky-400" },

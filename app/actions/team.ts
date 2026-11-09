@@ -6,17 +6,24 @@ import { requireRole } from "@/lib/dal";
 import {
   createStaffAccount,
   createStaffTimeOff,
+  deactivateManager,
   deleteStaffTimeOff,
   listStaffTimeOff,
   saveStaffHours,
+  updateManager,
   updateStaffTimeOff,
   type CreateStaffResult,
   type CreateStaffTimeOffResult,
+  type DeactivateManagerResult,
   type DeleteStaffTimeOffResult,
   type ListStaffTimeOffResult,
   type SaveStaffHoursResult,
+  type UpdateManagerResult,
   type UpdateStaffTimeOffResult,
 } from "@/lib/team/service";
+import { forecastCenterLoad, type ForecastResult } from "@/lib/team/forecast-service";
+import { suggestPractitionerForSlot, type SuggestPractitionerResult } from "@/lib/team/assignment-service";
+import { analyzeStaffPerformance, type PerformanceResult } from "@/lib/team/performance-service";
 import { timeOffAuditDetail } from "@/lib/team/timeoff";
 
 // F4 — Server Actions de l'équipe. Les droits et la validation sont dans lib/team/service.ts ;
@@ -24,7 +31,7 @@ import { timeOffAuditDetail } from "@/lib/team/timeoff";
 
 export type CreateStaffActionResult = CreateStaffResult & { message?: string };
 
-// Le propriétaire et les gérants créent un compte STAFF avec un mot de passe temporaire.
+// Le propriétaire crée des gérants et du personnel ; un gérant crée du personnel dans ses centres, avec un mot de passe temporaire.
 // Le mot de passe n'est jamais renvoyé, journalisé ni écrit dans l'audit.
 export async function createStaffAction(raw: unknown): Promise<CreateStaffActionResult> {
   const user = await requireRole("OWNER", "MANAGER");
@@ -33,12 +40,48 @@ export async function createStaffAction(raw: unknown): Promise<CreateStaffAction
   const result = await createStaffAccount(user, raw);
   if (!result.ok) return result;
 
-  await logEvent("STAFF_CREATED", { userId: user.id, organizationId: user.organization.id, detail: `staff:${result.staff.id}` });
+  // Le détail porte l'identifiant du compte et son rôle d'accès : jamais le mot de passe ni le hash.
+  await logEvent("STAFF_CREATED", { userId: user.id, organizationId: user.organization.id, detail: `staff:${result.staff.id}:${result.staff.role}` });
   // La liste des praticiens de la page publique est mise en cache : elle change avec ce compte.
   updateTag(`salon:${user.organization.slug}`);
   revalidatePath("/dashboard/equipe");
   revalidatePath("/dashboard/calendar");
-  return { ...result, message: "Membre du personnel ajouté." };
+  return { ...result, message: result.staff.role === "MANAGER" ? "Gérant ajouté." : "Membre du personnel ajouté." };
+}
+
+// ── Gérants : centres, modification, désactivation (propriétaire seulement, voir lib/team/service.ts) ──
+
+export type UpdateManagerActionResult = UpdateManagerResult & { message?: string };
+
+// Affecte le gérant à un ou plusieurs centres et/ou modifie son nom. Sans changement : aucune écriture, aucun événement d'audit.
+export async function updateManagerAction(managerId: unknown, raw: unknown): Promise<UpdateManagerActionResult> {
+  const user = await requireRole("OWNER");
+  if (!user.organization) return { ok: false, message: "Organisation introuvable." };
+
+  const result = await updateManager(user, managerId, raw);
+  if (!result.ok) return result;
+  if (!result.changed) return { ...result, message: "Aucune modification." };
+
+  await logEvent("STAFF_UPDATED", { userId: user.id, organizationId: user.organization.id, detail: `staff:${result.manager.id}:MANAGER` });
+  revalidatePath("/dashboard/equipe");
+  revalidatePath("/dashboard");
+  return { ...result, message: "Gérant modifié." };
+}
+
+export type DeactivateManagerActionResult = DeactivateManagerResult & { message?: string };
+
+// Désactive un gérant (rien n'est supprimé). Le gérant ne peut plus se connecter, même avec une session ouverte.
+export async function deactivateManagerAction(managerId: unknown): Promise<DeactivateManagerActionResult> {
+  const user = await requireRole("OWNER");
+  if (!user.organization) return { ok: false, message: "Organisation introuvable." };
+
+  const result = await deactivateManager(user, managerId);
+  if (!result.ok) return result;
+
+  await logEvent("STAFF_DEACTIVATED", { userId: user.id, organizationId: user.organization.id, detail: `staff:${result.manager.id}:MANAGER` });
+  revalidatePath("/dashboard/equipe");
+  revalidatePath("/dashboard");
+  return { ...result, message: "Gérant désactivé." };
 }
 
 export type SaveStaffHoursActionResult = SaveStaffHoursResult & { message?: string };
@@ -111,4 +154,51 @@ export async function listStaffTimeOffAction(staffId: unknown): Promise<ListStaf
   const user = await requireRole("OWNER", "MANAGER");
   if (!user.organization) return { ok: false, message: "Organisation introuvable." };
   return listStaffTimeOff(user, staffId);
+}
+
+export type StaffPerformanceActionResult = PerformanceResult;
+
+// Analyse de performance d'un employé par l'IA (Gemini) : lecture seule, propose une évaluation, ne modifie rien.
+// Détail d'audit : identifiant seulement (ni note, ni indicateur, ni motif d'absence).
+export async function analyzeStaffPerformanceAction(staffId: unknown, lang: unknown): Promise<StaffPerformanceActionResult> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: "Organisation introuvable." };
+
+  const result = await analyzeStaffPerformance(user, staffId, { lang });
+  if (!result.ok) return result;
+
+  await logEvent("STAFF_PERFORMANCE_ANALYZED", { userId: user.id, organizationId: user.organization.id, detail: `staff:${result.staffId}:${result.report.source}` });
+  return result;
+}
+
+export type SuggestPractitionerActionResult = SuggestPractitionerResult;
+
+// Suggestion de praticien pour un créneau (IA Gemini) : lecture seule, ne crée ni n'affecte rien.
+// Détail d'audit : centre et source seulement (ni nom, ni client, ni note).
+export async function suggestPractitionerAction(raw: unknown, lang: unknown): Promise<SuggestPractitionerActionResult> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: "Organisation introuvable." };
+
+  const result = await suggestPractitionerForSlot(user, raw, { lang });
+  if (!result.ok) return result;
+
+  const centerId = typeof raw === "object" && raw !== null ? String((raw as { centerId?: unknown }).centerId) : "";
+  await logEvent("STAFF_ASSIGNMENT_SUGGESTED", { userId: user.id, organizationId: user.organization.id, detail: `center:${centerId}:${result.source}` });
+  return result;
+}
+
+export type ForecastActionResult = ForecastResult;
+
+// Prévision de charge d'un centre (IA Gemini) : lecture seule, propose des pistes, ne modifie rien.
+// Détail d'audit : centre et source seulement.
+export async function forecastCenterLoadAction(raw: unknown, lang: unknown): Promise<ForecastActionResult> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: "Organisation introuvable." };
+
+  const result = await forecastCenterLoad(user, raw, { lang });
+  if (!result.ok) return result;
+
+  const centerId = typeof raw === "object" && raw !== null ? String((raw as { centerId?: unknown }).centerId) : "";
+  await logEvent("TEAM_FORECAST_VIEWED", { userId: user.id, organizationId: user.organization.id, detail: `center:${centerId}:${result.advice.source}` });
+  return result;
 }
