@@ -26,6 +26,18 @@ export default function StockPage({ searchParams }: { searchParams: SearchParams
   );
 }
 
+// Transfert suggéré par « Analyses IA » : produit, centre source, centre destinataire et quantité conseillée, lus dans l'adresse. Aucune valeur n'est
+// crue : le formulaire les revérifie contre les niveaux et les centres de l'utilisateur, et le serveur contrôle tout à l'envoi.
+function prefillFrom(params: Record<string, string | string[] | undefined>) {
+  const one = (key: string) => (typeof params[key] === "string" ? (params[key] as string) : "");
+  const productId = one("tp");
+  const centerId = one("tf");
+  if (!/^[a-f0-9]{24}$/i.test(productId) || !/^[a-f0-9]{24}$/i.test(centerId)) return null;
+  const to = one("tt");
+  const quantity = Number(one("tq"));
+  return { productId, centerId, toCenterId: /^[a-f0-9]{24}$/i.test(to) ? to : undefined, quantity: Number.isInteger(quantity) && quantity > 0 ? quantity : undefined };
+}
+
 async function Stock({ searchParams }: { searchParams: SearchParams }) {
   const [user, params] = await Promise.all([requireRole("OWNER", "MANAGER"), searchParams]);
   const data = await getStockHubData(user, typeof params.center === "string" ? params.center : undefined);
@@ -34,7 +46,7 @@ async function Stock({ searchParams }: { searchParams: SearchParams }) {
       <DashboardHeader user={user} />
       <PageIntro title="Matériel et" accent="stock" subtitle="Produits, niveaux par centre, alertes de seuil et mouvements." />
       <StockTabs role={user.role} />
-      <StockHub {...data} centers={data.centers} />
+      <StockHub {...data} centers={data.centers} prefill={prefillFrom(params)} />
     </>
   );
 }

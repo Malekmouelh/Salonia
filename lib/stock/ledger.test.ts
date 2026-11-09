@@ -388,10 +388,12 @@ describe("Index uniques : comportement réel dans MongoDB", () => {
     await StockProduct.create({ organizationId: key.organizationId, name: "shampoing", unit: "ML" });
   });
 
-  it("une recette est unique par (service, produit)", async () => {
+  it("une recette est unique par (centre, service, produit) ; un autre centre peut avoir la sienne", async () => {
     const serviceId = new Types.ObjectId();
-    await ServiceRecipe.create({ organizationId: key.organizationId, serviceId, productId: key.productId, quantityPerService: 30 });
-    await assert.rejects(ServiceRecipe.create({ organizationId: key.organizationId, serviceId, productId: key.productId, quantityPerService: 10 }), (e: unknown) => isDuplicateKey(e));
+    const centerId = new Types.ObjectId();
+    await ServiceRecipe.create({ organizationId: key.organizationId, centerId, serviceId, productId: key.productId, quantityPerService: 30 });
+    await assert.rejects(ServiceRecipe.create({ organizationId: key.organizationId, centerId, serviceId, productId: key.productId, quantityPerService: 10 }), (e: unknown) => isDuplicateKey(e));
+    await ServiceRecipe.create({ organizationId: key.organizationId, centerId: new Types.ObjectId(), serviceId, productId: key.productId, quantityPerService: 10 });
   });
 
   it("un mouvement enregistré ne se modifie pas, même par updateOne (champs immuables)", async () => {

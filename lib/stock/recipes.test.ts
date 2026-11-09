@@ -8,8 +8,8 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import { createService, startTestDb, type TestDb } from "@/lib/booking/test-support";
 import { Service } from "@/lib/models/catalog";
 import { ServiceRecipe, StockMovement } from "@/lib/models/stock";
-import { MSG_RECIPE_DUPLICATE, MSG_RECIPE_LINE_NOT_FOUND, MSG_SERVICE_NOT_FOUND, addRecipeLine, listServiceRecipe, removeRecipeLine, updateRecipeLine } from "./recipes";
-import { MSG_STOCK_FORBIDDEN } from "./scope";
+import { MSG_RECIPE_DUPLICATE, MSG_RECIPE_LINE_NOT_FOUND, MSG_SERVICE_NOT_FOUND, addRecipeLine, countRecipeLinesByService, listServiceRecipe, removeRecipeLine, updateRecipeLine } from "./recipes";
+import { MSG_STOCK_CENTER_NOT_FOUND, MSG_STOCK_FORBIDDEN } from "./scope";
 import { MSG_PRODUCT_ARCHIVED, MSG_PRODUCT_NOT_FOUND, activateProductInCenter, archiveProduct, createProduct, recordStockMovement } from "./service";
 import { expectFail, expectOk, forbiddenActors, id, makeWorld, newId, type World } from "./test-fixtures";
 
@@ -33,30 +33,92 @@ beforeEach(async () => {
   foreignProduct = expectOk(await createProduct(w.ownerB(), { name: "Produit B", unit: "ML" })).product.id;
 });
 
-const line = (extra: Record<string, unknown> = {}) => ({ serviceId: coloring, productId: dye, quantityPerService: 40, ...extra });
-const lines = async (serviceId = coloring) => (await ServiceRecipe.find({ serviceId }).sort({ productId: 1 }).lean()).map((r) => [String(r.productId), r.quantityPerService]);
+const line = (extra: Record<string, unknown> = {}) => ({ centerId: id(w.a1), serviceId: coloring, productId: dye, quantityPerService: 40, ...extra });
+const lines = async (serviceId = coloring) => (await ServiceRecipe.find({ serviceId, centerId: w.a1._id }).sort({ productId: 1 }).lean()).map((r) => [String(r.productId), r.quantityPerService]);
 
-describe("droits : le propriétaire seul gère et lit les recettes", () => {
-  it("MANAGER, STAFF, CLIENT, SUPER_ADMIN et un acteur sans organisation sont refusés partout, sans écriture", async () => {
+describe("une recette est propre à chaque centre", () => {
+  it("la même prestation a des quantités différentes dans deux centres du même propriétaire, sans se mélanger", async () => {
+    expectOk(await addRecipeLine(w.ownerA(), line({ centerId: id(w.a1), quantityPerService: 40 })));
+    expectOk(await addRecipeLine(w.ownerA(), line({ centerId: id(w.a2), quantityPerService: 25 }))); // même service, même produit : pas un doublon
+    expectOk(await addRecipeLine(w.ownerA(), line({ centerId: id(w.a2), productId: shampoo, quantityPerService: 10 })));
+    const read = async (center: string) => expectOk(await listServiceRecipe(w.ownerA(), { centerId: center, serviceId: coloring })).lines.map((l) => [l.productName, l.quantityPerService, l.centerId]);
+    assert.deepEqual(await read(id(w.a1)), [["Colorant", 40, id(w.a1)]]);
+    assert.deepEqual(await read(id(w.a2)), [["Colorant", 25, id(w.a2)], ["Shampoing", 10, id(w.a2)]]);
+    assert.deepEqual(await read(id(w.a3)), []); // un centre sans recette n'hérite de rien
+
+    expectOk(await updateRecipeLine(w.ownerA(), line({ centerId: id(w.a2), quantityPerService: 99 })));
+    assert.equal((await read(id(w.a1)))[0][1], 40); // la modification d'un centre ne touche pas l'autre
+    expectFail(await updateRecipeLine(w.ownerA(), line({ centerId: id(w.a3) })), MSG_RECIPE_LINE_NOT_FOUND);
+
+    expectOk(await removeRecipeLine(w.ownerA(), { centerId: id(w.a2), serviceId: coloring, productId: dye }));
+    expectFail(await removeRecipeLine(w.ownerA(), { centerId: id(w.a3), serviceId: coloring, productId: dye }), MSG_RECIPE_LINE_NOT_FOUND);
+    assert.deepEqual(await read(id(w.a1)), [["Colorant", 40, id(w.a1)]]); // la suppression d'un centre ne touche pas l'autre
+  });
+
+  it("un centre d'une autre organisation ou inconnu est refusé (« Centre introuvable. »), sans écriture", async () => {
+    for (const centerId of [id(w.b1), newId()]) {
+      expectFail(await addRecipeLine(w.ownerA(), line({ centerId })), MSG_STOCK_CENTER_NOT_FOUND);
+      expectFail(await updateRecipeLine(w.ownerA(), line({ centerId })), MSG_STOCK_CENTER_NOT_FOUND);
+      expectFail(await removeRecipeLine(w.ownerA(), { centerId, serviceId: coloring, productId: dye }), MSG_STOCK_CENTER_NOT_FOUND);
+      expectFail(await listServiceRecipe(w.ownerA(), { centerId, serviceId: coloring }), MSG_STOCK_CENTER_NOT_FOUND);
+    }
+    assert.equal(await ServiceRecipe.countDocuments(), 0);
+  });
+});
+
+describe("nombre de produits par service dans un centre", () => {
+  it("compte seulement les lignes du centre demandé ; un service sans recette est absent ; centre étranger et STAFF refusés", async () => {
+    expectOk(await addRecipeLine(w.ownerA(), line()));
+    expectOk(await addRecipeLine(w.ownerA(), line({ productId: shampoo })));
+    expectOk(await addRecipeLine(w.ownerA(), line({ centerId: id(w.a2), serviceId: haircut, productId: shampoo })));
+    assert.deepEqual(expectOk(await countRecipeLinesByService(w.ownerA(), { centerId: id(w.a1) })).counts, { [coloring]: 2 });
+    assert.deepEqual(expectOk(await countRecipeLinesByService(w.ownerA(), { centerId: id(w.a2) })).counts, { [haircut]: 1 });
+    assert.deepEqual(expectOk(await countRecipeLinesByService(w.ownerA(), { centerId: id(w.a3) })).counts, {});
+    expectFail(await countRecipeLinesByService(w.ownerA(), { centerId: id(w.b1) }), MSG_STOCK_CENTER_NOT_FOUND);
+    expectFail(await countRecipeLinesByService(w.actor("STAFF", w.orgA, [w.a1]), { centerId: id(w.a1) }), MSG_STOCK_FORBIDDEN);
+    assert.deepEqual(expectOk(await countRecipeLinesByService(w.managerA(w.a1), { centerId: id(w.a1) })).counts, { [coloring]: 2 });
+  });
+});
+
+describe("droits : propriétaire (tous les centres) et gérant (ses centres) ; les autres rôles sont refusés", () => {
+  it("STAFF, CLIENT, SUPER_ADMIN et un acteur sans organisation sont refusés partout, sans écriture", async () => {
     expectOk(await addRecipeLine(w.ownerA(), line()));
     const before = JSON.stringify(await ServiceRecipe.find().sort({ _id: 1 }).lean());
-    const refused: [string, ReturnType<World["actor"]>][] = [["MANAGER", w.managerA(w.a1, w.a2, w.a3)], ...forbiddenActors(w)];
+    const refused: [string, ReturnType<World["actor"]>][] = [...forbiddenActors(w)];
     for (const [label, who] of refused) {
       for (const [name, result] of [
         ["addRecipeLine", await addRecipeLine(who, line({ productId: shampoo }))],
         ["updateRecipeLine", await updateRecipeLine(who, line({ quantityPerService: 99 }))],
-        ["removeRecipeLine", await removeRecipeLine(who, { serviceId: coloring, productId: dye })],
-        ["listServiceRecipe", await listServiceRecipe(who, { serviceId: coloring })],
+        ["removeRecipeLine", await removeRecipeLine(who, { centerId: id(w.a1), serviceId: coloring, productId: dye })],
+        ["listServiceRecipe", await listServiceRecipe(who, { centerId: id(w.a1), serviceId: coloring })],
       ] as const) assert.equal(expectFail(result, MSG_STOCK_FORBIDDEN).message, MSG_STOCK_FORBIDDEN, `${label} : ${name}`);
     }
     assert.equal(JSON.stringify(await ServiceRecipe.find().sort({ _id: 1 }).lean()), before);
   });
 });
 
+describe("le gérant ne gère que les recettes de SES centres", () => {
+  it("ajoute, modifie, lit et supprime dans son centre ; refusé (« Centre introuvable. ») dans un centre qui n'est pas le sien, sans écriture", async () => {
+    const manager = w.managerA(w.a1); // gérant du seul centre 1
+    expectOk(await addRecipeLine(manager, line({ quantityPerService: 40 })));
+    expectOk(await updateRecipeLine(manager, line({ quantityPerService: 55 })));
+    assert.equal(expectOk(await listServiceRecipe(manager, { centerId: id(w.a1), serviceId: coloring })).lines[0].quantityPerService, 55);
+    expectFail(await addRecipeLine(manager, line({ centerId: id(w.a2) })), MSG_STOCK_CENTER_NOT_FOUND);
+    expectFail(await updateRecipeLine(manager, line({ centerId: id(w.a2) })), MSG_STOCK_CENTER_NOT_FOUND);
+    expectFail(await listServiceRecipe(manager, { centerId: id(w.a2), serviceId: coloring }), MSG_STOCK_CENTER_NOT_FOUND);
+    expectFail(await countRecipeLinesByService(manager, { centerId: id(w.a3) }), MSG_STOCK_CENTER_NOT_FOUND);
+    // la recette d'un autre centre existe : le gérant ne peut ni la lire ni la supprimer
+    expectOk(await addRecipeLine(w.ownerA(), line({ centerId: id(w.a2), quantityPerService: 25 })));
+    expectFail(await removeRecipeLine(manager, { centerId: id(w.a2), serviceId: coloring, productId: dye }), MSG_STOCK_CENTER_NOT_FOUND);
+    assert.equal(await ServiceRecipe.countDocuments({ centerId: w.a2._id }), 1);
+    expectOk(await removeRecipeLine(manager, { centerId: id(w.a1), serviceId: coloring, productId: dye }));
+  });
+});
+
 describe("création d'une ligne", () => {
   it("ajoute un produit à la recette d'un service ; l'unité vient du produit, l'organisation de l'acteur", async () => {
     const r = expectOk(await addRecipeLine(w.ownerA(), line({ organizationId: id(w.orgB), unit: "ML", productName: "Pirate", active: false })));
-    assert.deepEqual(r.line, { serviceId: coloring, productId: dye, productName: "Colorant", unit: "G", productActive: true, quantityPerService: 40 });
+    assert.deepEqual(r.line, { centerId: id(w.a1), serviceId: coloring, productId: dye, productName: "Colorant", unit: "G", productActive: true, quantityPerService: 40 });
     const stored = (await ServiceRecipe.findOne({ serviceId: coloring }).lean())!;
     assert.equal(String(stored.organizationId), id(w.orgA));
     assert.ok(!("unit" in stored) && !("productName" in stored));
@@ -91,6 +153,9 @@ describe("création d'une ligne", () => {
       { serviceId: "pas-un-id" },
       { serviceId: { $ne: "" } },
       { serviceId: undefined },
+      { centerId: undefined },
+      { centerId: "x" },
+      { centerId: { $ne: "" } },
       { productId: "x" },
       { productId: ["a"] },
       { productId: undefined },
@@ -104,7 +169,8 @@ describe("création d'une ligne", () => {
   it("10. service inexistant ou d'une autre organisation : « Service introuvable. » ; produit étranger ou inexistant : « Produit introuvable. »", async () => {
     for (const serviceId of [foreignService, newId()]) expectFail(await addRecipeLine(w.ownerA(), line({ serviceId })), MSG_SERVICE_NOT_FOUND);
     for (const productId of [foreignProduct, newId()]) expectFail(await addRecipeLine(w.ownerA(), line({ productId })), MSG_PRODUCT_NOT_FOUND);
-    expectFail(await addRecipeLine(w.ownerB(), line()), MSG_SERVICE_NOT_FOUND); // le propriétaire B ne voit pas le service de A
+    expectFail(await addRecipeLine(w.ownerB(), line()), MSG_STOCK_CENTER_NOT_FOUND); // le propriétaire B ne voit ni le centre ni le service de A
+    expectFail(await addRecipeLine(w.ownerB(), line({ centerId: id(w.b1) })), MSG_SERVICE_NOT_FOUND);
     assert.equal(await ServiceRecipe.countDocuments(), 0);
   });
 
@@ -133,7 +199,8 @@ describe("modification d'une ligne", () => {
     expectFail(await updateRecipeLine(w.ownerA(), line({ productId: shampoo })), MSG_RECIPE_LINE_NOT_FOUND);
     expectFail(await updateRecipeLine(w.ownerA(), line({ serviceId: haircut })), MSG_RECIPE_LINE_NOT_FOUND);
     expectFail(await updateRecipeLine(w.ownerA(), line({ serviceId: newId() })), MSG_RECIPE_LINE_NOT_FOUND);
-    expectFail(await updateRecipeLine(w.ownerB(), line()), MSG_RECIPE_LINE_NOT_FOUND);
+    expectFail(await updateRecipeLine(w.ownerB(), line()), MSG_STOCK_CENTER_NOT_FOUND);
+    expectFail(await updateRecipeLine(w.ownerB(), line({ centerId: id(w.b1) })), MSG_RECIPE_LINE_NOT_FOUND);
     for (const quantityPerService of [0, -1, 1.5, "5"]) expectFail(await updateRecipeLine(w.ownerA(), line({ quantityPerService })));
     assert.deepEqual(await lines(), [[dye, 40]]);
   });
@@ -151,18 +218,19 @@ describe("suppression d'une ligne", () => {
     expectOk(await addRecipeLine(w.ownerA(), line()));
     expectOk(await addRecipeLine(w.ownerA(), line({ productId: shampoo, quantityPerService: 15 })));
     expectOk(await addRecipeLine(w.ownerA(), line({ serviceId: haircut })));
-    const removed = expectOk(await removeRecipeLine(w.ownerA(), { serviceId: coloring, productId: dye }));
+    const removed = expectOk(await removeRecipeLine(w.ownerA(), { centerId: id(w.a1), serviceId: coloring, productId: dye }));
     assert.deepEqual([removed.serviceId, removed.productId, removed.removedQuantity], [coloring, dye, 40]);
-    expectFail(await removeRecipeLine(w.ownerA(), { serviceId: coloring, productId: dye }), MSG_RECIPE_LINE_NOT_FOUND);
+    expectFail(await removeRecipeLine(w.ownerA(), { centerId: id(w.a1), serviceId: coloring, productId: dye }), MSG_RECIPE_LINE_NOT_FOUND);
     assert.deepEqual(await lines(coloring), [[shampoo, 15]]);
     assert.deepEqual(await lines(haircut), [[dye, 40]]);
   });
 
   it("10. une ligne d'une autre organisation ne peut pas être supprimée ; identifiants mal formés refusés", async () => {
-    await ServiceRecipe.create({ organizationId: w.orgB._id, serviceId: foreignService, productId: foreignProduct, quantityPerService: 7 });
-    expectFail(await removeRecipeLine(w.ownerA(), { serviceId: foreignService, productId: foreignProduct }), MSG_RECIPE_LINE_NOT_FOUND);
-    expectFail(await removeRecipeLine(w.ownerA(), { serviceId: "x", productId: dye }));
-    expectFail(await removeRecipeLine(w.ownerA(), { serviceId: coloring, productId: { $ne: "" } }));
+    await ServiceRecipe.create({ organizationId: w.orgB._id, centerId: w.b1._id, serviceId: foreignService, productId: foreignProduct, quantityPerService: 7 });
+    expectFail(await removeRecipeLine(w.ownerA(), { centerId: id(w.b1), serviceId: foreignService, productId: foreignProduct }), MSG_STOCK_CENTER_NOT_FOUND);
+    expectFail(await removeRecipeLine(w.ownerA(), { centerId: id(w.a1), serviceId: foreignService, productId: foreignProduct }), MSG_RECIPE_LINE_NOT_FOUND);
+    expectFail(await removeRecipeLine(w.ownerA(), { centerId: id(w.a1), serviceId: "x", productId: dye }));
+    expectFail(await removeRecipeLine(w.ownerA(), { centerId: id(w.a1), serviceId: coloring, productId: { $ne: "" } }));
     expectFail(await removeRecipeLine(w.ownerA(), null));
     assert.equal(await ServiceRecipe.countDocuments({ organizationId: w.orgB._id }), 1);
   });
@@ -170,10 +238,10 @@ describe("suppression d'une ligne", () => {
   it("une ligne dont le produit est archivé, ou orpheline d'un service supprimé du catalogue, reste supprimable", async () => {
     expectOk(await addRecipeLine(w.ownerA(), line()));
     expectOk(await archiveProduct(w.ownerA(), { productId: dye }));
-    expectOk(await removeRecipeLine(w.ownerA(), { serviceId: coloring, productId: dye }));
+    expectOk(await removeRecipeLine(w.ownerA(), { centerId: id(w.a1), serviceId: coloring, productId: dye }));
     expectOk(await addRecipeLine(w.ownerA(), line({ serviceId: haircut, productId: shampoo })));
     await Service.deleteOne({ _id: haircut }); // le catalogue (Module 2) supprime le service : la recette devient orpheline
-    expectOk(await removeRecipeLine(w.ownerA(), { serviceId: haircut, productId: shampoo }));
+    expectOk(await removeRecipeLine(w.ownerA(), { centerId: id(w.a1), serviceId: haircut, productId: shampoo }));
     assert.equal(await ServiceRecipe.countDocuments(), 0);
   });
 });
@@ -183,26 +251,26 @@ describe("lecture", () => {
     expectOk(await addRecipeLine(w.ownerA(), line()));
     expectOk(await addRecipeLine(w.ownerA(), line({ productId: shampoo, quantityPerService: 15 })));
     expectOk(await archiveProduct(w.ownerA(), { productId: dye }));
-    const r = expectOk(await listServiceRecipe(w.ownerA(), { serviceId: coloring }));
+    const r = expectOk(await listServiceRecipe(w.ownerA(), { centerId: id(w.a1), serviceId: coloring }));
     assert.equal(r.serviceName, "Coloration");
     assert.deepEqual(r.lines.map((l) => [l.productName, l.unit, l.quantityPerService, l.productActive]), [["Colorant", "G", 40, false], ["Shampoing", "ML", 15, true]]);
   });
 
   it("une recette vide est un succès vide ; service inexistant, étranger ou mal formé : refusé", async () => {
-    assert.deepEqual(expectOk(await listServiceRecipe(w.ownerA(), { serviceId: haircut })).lines, []);
-    expectFail(await listServiceRecipe(w.ownerA(), { serviceId: foreignService }), MSG_SERVICE_NOT_FOUND);
-    expectFail(await listServiceRecipe(w.ownerA(), { serviceId: newId() }), MSG_SERVICE_NOT_FOUND);
-    expectFail(await listServiceRecipe(w.ownerA(), { serviceId: "x" }));
-    expectFail(await listServiceRecipe(w.ownerB(), { serviceId: coloring }), MSG_SERVICE_NOT_FOUND);
+    assert.deepEqual(expectOk(await listServiceRecipe(w.ownerA(), { centerId: id(w.a1), serviceId: haircut })).lines, []);
+    expectFail(await listServiceRecipe(w.ownerA(), { centerId: id(w.a1), serviceId: foreignService }), MSG_SERVICE_NOT_FOUND);
+    expectFail(await listServiceRecipe(w.ownerA(), { centerId: id(w.a1), serviceId: newId() }), MSG_SERVICE_NOT_FOUND);
+    expectFail(await listServiceRecipe(w.ownerA(), { centerId: id(w.a1), serviceId: "x" }));
+    expectFail(await listServiceRecipe(w.ownerB(), { centerId: id(w.b1), serviceId: coloring }), MSG_SERVICE_NOT_FOUND);
   });
 
   it("n'affiche jamais les recettes d'une autre organisation ni d'identifiant d'organisation", async () => {
     expectOk(await addRecipeLine(w.ownerA(), line()));
-    await ServiceRecipe.create({ organizationId: w.orgB._id, serviceId: foreignService, productId: foreignProduct, quantityPerService: 7 });
-    const mine = expectOk(await listServiceRecipe(w.ownerA(), { serviceId: coloring }));
+    await ServiceRecipe.create({ organizationId: w.orgB._id, centerId: w.b1._id, serviceId: foreignService, productId: foreignProduct, quantityPerService: 7 });
+    const mine = expectOk(await listServiceRecipe(w.ownerA(), { centerId: id(w.a1), serviceId: coloring }));
     assert.equal(mine.lines.length, 1);
     assert.ok(!JSON.stringify(mine).includes(id(w.orgA)));
-    assert.equal(expectOk(await listServiceRecipe(w.ownerB(), { serviceId: foreignService })).lines.length, 1);
+    assert.equal(expectOk(await listServiceRecipe(w.ownerB(), { centerId: id(w.b1), serviceId: foreignService })).lines.length, 1);
   });
 });
 
@@ -212,9 +280,9 @@ describe("les recettes ne touchent ni l'historique ni les rendez-vous", () => {
     expectOk(await recordStockMovement(w.ownerA(), { productId: shampoo, centerId: id(w.a1), kind: "OUT", quantity: 10 }));
     const snapshot = async () => JSON.stringify(await StockMovement.find().sort({ seq: 1 }).lean());
     const before = await snapshot();
-    expectOk(await addRecipeLine(w.ownerA(), { serviceId: coloring, productId: shampoo, quantityPerService: 20 }));
-    expectOk(await updateRecipeLine(w.ownerA(), { serviceId: coloring, productId: shampoo, quantityPerService: 30 }));
-    expectOk(await removeRecipeLine(w.ownerA(), { serviceId: coloring, productId: shampoo }));
+    expectOk(await addRecipeLine(w.ownerA(), { centerId: id(w.a1), serviceId: coloring, productId: shampoo, quantityPerService: 20 }));
+    expectOk(await updateRecipeLine(w.ownerA(), { centerId: id(w.a1), serviceId: coloring, productId: shampoo, quantityPerService: 30 }));
+    expectOk(await removeRecipeLine(w.ownerA(), { centerId: id(w.a1), serviceId: coloring, productId: shampoo }));
     assert.equal(await snapshot(), before);
     assert.equal(await StockMovement.countDocuments({ kind: "CONSUMPTION" }), 0);
   });

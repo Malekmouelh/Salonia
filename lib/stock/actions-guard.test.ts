@@ -26,6 +26,7 @@ const ACTIONS: Record<string, [string, string, string | null]> = {
   createStockProductAction: ['requireRole("OWNER")', "createProduct(", "STOCK_PRODUCT_CREATED"],
   updateStockProductAction: ['requireRole("OWNER")', "updateProduct(", "STOCK_PRODUCT_UPDATED"],
   archiveStockProductAction: ['requireRole("OWNER")', "archiveProduct(", "STOCK_PRODUCT_ARCHIVED"],
+  deleteStockProductAction: ['requireRole("OWNER")', "deleteProduct(", "STOCK_PRODUCT_DELETED"],
   listStockProductsAction: ['requireRole("OWNER", "MANAGER")', "listProducts(", null],
   activateStockProductAction: ['requireRole("OWNER", "MANAGER")', "activateProductInCenter(", "STOCK_LEVEL_UPDATED"],
   updateStockThresholdAction: ['requireRole("OWNER", "MANAGER")', "updateAlertThreshold(", "STOCK_LEVEL_UPDATED"],
@@ -41,9 +42,10 @@ const ACTIONS: Record<string, [string, string, string | null]> = {
   listEquipmentAction: ['requireRole("OWNER", "MANAGER")', "listEquipment(", null],
   listMaintenanceScheduleAction: ['requireRole("OWNER", "MANAGER")', "listMaintenanceSchedule(", null],
   listMaintenanceHistoryAction: ['requireRole("OWNER", "MANAGER")', "listMaintenanceHistory(", null],
-  createSupplierAction: ['requireRole("OWNER")', "createSupplier(", "SUPPLIER_CREATED"],
-  updateSupplierAction: ['requireRole("OWNER")', "updateSupplier(", "SUPPLIER_UPDATED"],
-  archiveSupplierAction: ['requireRole("OWNER")', "archiveSupplier(", "SUPPLIER_ARCHIVED"],
+  createSupplierAction: ['requireRole("OWNER", "MANAGER")', "createSupplier(", "SUPPLIER_CREATED"],
+  updateSupplierAction: ['requireRole("OWNER", "MANAGER")', "updateSupplier(", "SUPPLIER_UPDATED"],
+  archiveSupplierAction: ['requireRole("OWNER", "MANAGER")', "archiveSupplier(", "SUPPLIER_ARCHIVED"],
+  deleteSupplierAction: ['requireRole("OWNER", "MANAGER")', "deleteSupplier(", "SUPPLIER_DELETED"],
   listSuppliersAction: ['requireRole("OWNER", "MANAGER")', "listSuppliers(", null],
   createPurchaseOrderAction: ['requireRole("OWNER", "MANAGER")', "createPurchaseOrder(", "PURCHASE_ORDER_CREATED"],
   updateDraftPurchaseOrderAction: ['requireRole("OWNER", "MANAGER")', "updateDraftPurchaseOrder(", "PURCHASE_ORDER_UPDATED"],
@@ -51,15 +53,21 @@ const ACTIONS: Record<string, [string, string, string | null]> = {
   cancelPurchaseOrderAction: ['requireRole("OWNER", "MANAGER")', "cancelPurchaseOrder(", "PURCHASE_ORDER_CANCELLED"],
   getPurchaseOrderAction: ['requireRole("OWNER", "MANAGER")', "getPurchaseOrder(", null],
   listPurchaseOrdersAction: ['requireRole("OWNER", "MANAGER")', "listPurchaseOrders(", null],
-  addRecipeLineAction: ['requireRole("OWNER")', "addRecipeLine(", "STOCK_RECIPE_ADDED"],
-  updateRecipeLineAction: ['requireRole("OWNER")', "updateRecipeLine(", "STOCK_RECIPE_UPDATED"],
-  removeRecipeLineAction: ['requireRole("OWNER")', "removeRecipeLine(", "STOCK_RECIPE_REMOVED"],
-  listServiceRecipeAction: ['requireRole("OWNER")', "listServiceRecipe(", null],
+  addRecipeLineAction: ['requireRole("OWNER", "MANAGER")', "addRecipeLine(", "STOCK_RECIPE_ADDED"],
+  updateRecipeLineAction: ['requireRole("OWNER", "MANAGER")', "updateRecipeLine(", "STOCK_RECIPE_UPDATED"],
+  removeRecipeLineAction: ['requireRole("OWNER", "MANAGER")', "removeRecipeLine(", "STOCK_RECIPE_REMOVED"],
+  listServiceRecipeAction: ['requireRole("OWNER", "MANAGER")', "listServiceRecipe(", null],
   listStockMovementsAction: ['requireRole("OWNER", "MANAGER")', "listStockMovements(", null],
   transferStockProductAction: ['requireRole("OWNER", "MANAGER")', "transferProduct(", "STOCK_TRANSFERRED"],
   transferEquipmentAction: ['requireRole("OWNER", "MANAGER")', "transferEquipment(", "EQUIPMENT_TRANSFERRED"],
   resumeStockTransferAction: ['requireRole("OWNER", "MANAGER")', "resumeTransfer(", "STOCK_TRANSFERRED"],
+  confirmStockTransferReceiptAction: ['requireRole("OWNER", "MANAGER")', "confirmTransferReceipt(", "STOCK_TRANSFER_RECEIVED"],
+  reverseStockTransferAction: ['requireRole("OWNER", "MANAGER")', "reverseTransfer(", "STOCK_TRANSFER_REVERSED"],
+  requestStockTransferAction: ['requireRole("OWNER", "MANAGER")', "requestTransfer(", "STOCK_TRANSFER_REQUESTED"],
+  answerStockTransferRequestAction: ['requireRole("OWNER", "MANAGER")', "answerTransferRequest(", "STOCK_TRANSFER_ANSWERED"],
   listStockTransfersAction: ['requireRole("OWNER", "MANAGER")', "listTransfers(", null],
+  explainStockForecastAction: ['requireRole("OWNER", "MANAGER")', "explainStockForecast(", null],
+  analyzeStockConsumptionAction: ['requireRole("OWNER", "MANAGER")', "analyzeStockConsumption(", null],
 };
 
 // Chemins à invalider PAR ACTION D'ÉCRITURE, pour les pages du Module 5 (certaines n'existent pas encore). Appliqués aux actions
@@ -75,6 +83,7 @@ const REVALIDATION: Record<string, string[]> = {
   createStockProductAction: [STOCK, RECIPES, ORDERS],
   updateStockProductAction: [STOCK, RECIPES, ORDERS],
   archiveStockProductAction: [STOCK, RECIPES, ORDERS],
+  deleteStockProductAction: [STOCK, RECIPES, ORDERS],
   activateStockProductAction: [STOCK],
   updateStockThresholdAction: [STOCK],
   recordStockMovementAction: [STOCK],
@@ -88,10 +97,11 @@ const REVALIDATION: Record<string, string[]> = {
   createSupplierAction: [SUPPLIERS, ORDERS],
   updateSupplierAction: [SUPPLIERS, ORDERS],
   archiveSupplierAction: [SUPPLIERS, ORDERS],
-  createPurchaseOrderAction: [ORDERS],
-  updateDraftPurchaseOrderAction: [ORDERS],
-  placePurchaseOrderAction: [ORDERS],
-  cancelPurchaseOrderAction: [ORDERS],
+  deleteSupplierAction: [SUPPLIERS, ORDERS],
+  createPurchaseOrderAction: [ORDERS, STOCK],
+  updateDraftPurchaseOrderAction: [ORDERS, STOCK],
+  placePurchaseOrderAction: [ORDERS, STOCK],
+  cancelPurchaseOrderAction: [ORDERS, STOCK],
   addRecipeLineAction: [RECIPES],
   updateRecipeLineAction: [RECIPES],
   removeRecipeLineAction: [RECIPES],
@@ -99,6 +109,10 @@ const REVALIDATION: Record<string, string[]> = {
   transferStockProductAction: [STOCK, ORDERS, EQUIPMENT],
   transferEquipmentAction: [STOCK, ORDERS, EQUIPMENT],
   resumeStockTransferAction: [STOCK, ORDERS, EQUIPMENT],
+  confirmStockTransferReceiptAction: [STOCK, ORDERS, EQUIPMENT],
+  reverseStockTransferAction: [STOCK, ORDERS, EQUIPMENT],
+  requestStockTransferAction: [STOCK, ORDERS, EQUIPMENT],
+  answerStockTransferRequestAction: [STOCK, ORDERS, EQUIPMENT],
 };
 
 // Écarts entre la table REVALIDATION et le code des actions, selon l'existence des pages.
@@ -115,7 +129,7 @@ function invalidationProblems(pageExists: (path: string) => boolean, actionBodie
 }
 
 describe("actions de stock : structure du code", () => {
-  it("le fichier est une unité « use server » et n'exporte que les trente-sept actions prévues", () => {
+  it("le fichier est une unité « use server » et n'exporte que les quarante-cinq actions prévues", () => {
     assert.ok(source.trimStart().startsWith('"use server";'));
     assert.deepEqual([...bodies.keys()].sort(), Object.keys(ACTIONS).sort());
     assert.deepEqual([...source.matchAll(/^export (?!async function|type )(\w+)/gm)].map((m) => m[1]), []); // pas d'export synchrone (interdit dans un fichier « use server »)
@@ -132,8 +146,8 @@ describe("actions de stock : structure du code", () => {
     }
   });
 
-  it("les définitions de produits sont réservées au propriétaire dès l'action ; le gérant n'y accède pas", () => {
-    for (const name of ["createStockProductAction", "updateStockProductAction", "archiveStockProductAction", "createSupplierAction", "updateSupplierAction", "archiveSupplierAction", "addRecipeLineAction", "updateRecipeLineAction", "removeRecipeLineAction", "listServiceRecipeAction"]) {
+  it("les définitions de produits sont réservées au propriétaire dès l'action ; les recettes (par centre) et les fournisseurs sont ouverts au gérant", () => {
+    for (const name of ["createStockProductAction", "updateStockProductAction", "archiveStockProductAction", "deleteStockProductAction"]) {
       assert.doesNotMatch(bodies.get(name)!, /"MANAGER"/, name);
     }
   });
@@ -142,7 +156,7 @@ describe("actions de stock : structure du code", () => {
     for (const [name, body] of bodies) {
       const missing = body.indexOf("if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION }");
       assert.ok(missing >= 0, `${name} : contrôle d'organisation manquant`);
-      assert.ok(missing < body.search(/\b(createProduct|updateProduct|archiveProduct|listProducts|activateProductInCenter|updateAlertThreshold|recordStockMovement|listStockLevels|repairStockLevels|receivePurchaseOrder|createEquipment|updateEquipment|archiveEquipment|recordMaintenance|listEquipment|listMaintenanceSchedule|listMaintenanceHistory|createSupplier|updateSupplier|archiveSupplier|listSuppliers|createPurchaseOrder|updateDraftPurchaseOrder|placePurchaseOrder|cancelPurchaseOrder|getPurchaseOrder|listPurchaseOrders|addRecipeLine|updateRecipeLine|removeRecipeLine|listServiceRecipe|listStockMovements|transferProduct|transferEquipment|resumeTransfer|listTransfers)\(/), name);
+      assert.ok(missing < body.search(/\b(createProduct|updateProduct|archiveProduct|deleteProduct|listProducts|activateProductInCenter|updateAlertThreshold|recordStockMovement|listStockLevels|repairStockLevels|receivePurchaseOrder|createEquipment|updateEquipment|archiveEquipment|recordMaintenance|listEquipment|listMaintenanceSchedule|listMaintenanceHistory|createSupplier|updateSupplier|archiveSupplier|deleteSupplier|listSuppliers|createPurchaseOrder|updateDraftPurchaseOrder|placePurchaseOrder|cancelPurchaseOrder|getPurchaseOrder|listPurchaseOrders|addRecipeLine|updateRecipeLine|removeRecipeLine|listServiceRecipe|listStockMovements|transferProduct|transferEquipment|resumeTransfer|listTransfers|confirmTransferReceipt|reverseTransfer|requestTransfer|answerTransferRequest|explainStockForecast|analyzeStockConsumption)\(/), name);
     }
     assert.match(source, /const MSG_NO_ORGANIZATION = "Organisation introuvable\.";/);
   });
@@ -169,7 +183,7 @@ describe("actions de stock : structure du code", () => {
     }
     for (const call of source.matchAll(/logEvent\([\s\S]*?\}\);/g)) {
       // détail construit par un générateur de lib/stock/audit.ts (appel direct, ou variable issue de receiptAuditDetail)
-      assert.match(call[0], /detail(: (productAuditDetail|levelAuditDetail|movementAuditDetail|equipmentAuditDetail|scheduleAuditDetail|maintenanceAuditDetail|supplierAuditDetail|orderAuditDetail|orderStatusAuditDetail|recipeAuditDetail|transferAuditDetail)\(|\s*\})/, call[0]);
+      assert.match(call[0], /detail(: (productAuditDetail|levelAuditDetail|movementAuditDetail|equipmentAuditDetail|scheduleAuditDetail|maintenanceAuditDetail|supplierAuditDetail|orderAuditDetail|orderStatusAuditDetail|recipeAuditDetail|transferAuditDetail|transferDetail)\(|\s*\})/, call[0]);
       assert.doesNotMatch(call[0], /note|raw|input/, call[0]); // jamais la note de mouvement ni la saisie brute
     }
   });
@@ -300,7 +314,7 @@ describe("actions de stock : structure du code", () => {
 describe("audit : types d'événements du Module 5", () => {
   it("chaque événement utilisé existe dans AUTH_EVENT_TYPES et dans le journal de sécurité", () => {
     const used = new Set([...source.matchAll(/logEvent\("(\w+)"/g)].map((m) => m[1]));
-    assert.deepEqual([...used].sort(), ["EQUIPMENT_ARCHIVED", "EQUIPMENT_CREATED", "EQUIPMENT_TRANSFERRED", "EQUIPMENT_UPDATED", "MAINTENANCE_RECORDED", "MAINTENANCE_SCHEDULED", "PURCHASE_ORDER_CANCELLED", "PURCHASE_ORDER_CREATED", "PURCHASE_ORDER_PLACED", "PURCHASE_ORDER_UPDATED", "STOCK_LEVEL_UPDATED", "STOCK_MOVEMENT_RECORDED", "STOCK_ORDER_RECEIVED", "STOCK_PRODUCT_ARCHIVED", "STOCK_PRODUCT_CREATED", "STOCK_PRODUCT_UPDATED", "STOCK_RECIPE_ADDED", "STOCK_RECIPE_REMOVED", "STOCK_RECIPE_UPDATED", "STOCK_TRANSFERRED", "SUPPLIER_ARCHIVED", "SUPPLIER_CREATED", "SUPPLIER_UPDATED"]);
+    assert.deepEqual([...used].sort(), ["EQUIPMENT_ARCHIVED", "EQUIPMENT_CREATED", "EQUIPMENT_TRANSFERRED", "EQUIPMENT_UPDATED", "MAINTENANCE_RECORDED", "MAINTENANCE_SCHEDULED", "PURCHASE_ORDER_CANCELLED", "PURCHASE_ORDER_CREATED", "PURCHASE_ORDER_PLACED", "PURCHASE_ORDER_UPDATED", "STOCK_LEVEL_UPDATED", "STOCK_MOVEMENT_RECORDED", "STOCK_ORDER_RECEIVED", "STOCK_PRODUCT_ARCHIVED", "STOCK_PRODUCT_CREATED", "STOCK_PRODUCT_DELETED", "STOCK_PRODUCT_UPDATED", "STOCK_RECIPE_ADDED", "STOCK_RECIPE_REMOVED", "STOCK_RECIPE_UPDATED", "STOCK_TRANSFERRED", "STOCK_TRANSFER_ANSWERED", "STOCK_TRANSFER_RECEIVED", "STOCK_TRANSFER_REQUESTED", "STOCK_TRANSFER_REVERSED", "SUPPLIER_ARCHIVED", "SUPPLIER_CREATED", "SUPPLIER_DELETED", "SUPPLIER_UPDATED"]);
     for (const event of used) {
       assert.ok((AUTH_EVENT_TYPES as readonly string[]).includes(event), `${event} absent de lib/enums.ts`);
       assert.match(securityLog, new RegExp(`${event}: \\{ label: "`), `${event} absent de security-log.tsx`);
@@ -309,8 +323,8 @@ describe("audit : types d'événements du Module 5", () => {
 });
 
 describe("transferts entre centres (F5.6) : structure des actions", () => {
-  const NAMES = ["transferStockProductAction", "transferEquipmentAction", "resumeStockTransferAction", "listStockTransfersAction"];
-  const SERVICE_CALL = /\b(transferProduct|transferEquipment|resumeTransfer|listTransfers)\(/;
+  const NAMES = ["transferStockProductAction", "transferEquipmentAction", "resumeStockTransferAction", "listStockTransfersAction", "confirmStockTransferReceiptAction", "reverseStockTransferAction", "requestStockTransferAction", "answerStockTransferRequestAction"];
+  const SERVICE_CALL = /\b(transferProduct|transferEquipment|resumeTransfer|listTransfers|confirmTransferReceipt|reverseTransfer|requestTransfer|answerTransferRequest)\(/;
 
   it("les quatre actions authentifient avec requireRole(\"OWNER\", \"MANAGER\") AVANT tout appel : aucune n'est ouverte à un autre rôle", () => {
     for (const name of NAMES) {
@@ -330,7 +344,7 @@ describe("transferts entre centres (F5.6) : structure des actions", () => {
   });
 
   it("sans avancée réelle (transfert déjà terminé), l'action répond AVANT logEvent et n'invalide rien ; l'audit ne contient que des identifiants et la quantité", () => {
-    for (const name of ["transferStockProductAction", "transferEquipmentAction", "resumeStockTransferAction"]) {
+    for (const name of ["transferStockProductAction", "transferEquipmentAction", "resumeStockTransferAction", "confirmStockTransferReceiptAction", "reverseStockTransferAction", "requestStockTransferAction", "answerStockTransferRequestAction"]) {
       const body = bodies.get(name)!;
       const early = body.indexOf("if (!result.advanced) return");
       assert.ok(early >= 0, name);

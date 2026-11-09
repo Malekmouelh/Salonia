@@ -79,15 +79,16 @@ Index : unique `{organizationId, name}`, collation insensible à la casse, filtr
 Index : **unique** `{productId, centerId}` ; `{organizationId, centerId}`.
 Alerte calculée à la lecture : `quantity <= alertThreshold` (D2). Jamais stockée.
 
-### 3.4 `ServiceRecipe` — F5.3 (gérée par OWNER)
+### 3.4 `ServiceRecipe` — F5.3 (gérée par OWNER et MANAGER, **propre à chaque centre**)
 | Champ | Type | Règle |
 |---|---|---|
 | `organizationId` | ObjectId | obligatoire |
+| `centerId` | ObjectId → Center | obligatoire ; centre de l'organisation dans le périmètre de l'acteur. Une même prestation peut consommer des quantités différentes d'un centre à l'autre |
 | `serviceId` | ObjectId → Service | doit appartenir à l'organisation (lecture seule de `Service`) |
 | `productId` | ObjectId → StockProduct | idem |
 | `quantityPerService` | Number entier > 0 | dans l'unité du produit |
 
-Index : **unique** `{serviceId, productId}` ; `{organizationId, serviceId}`. `timestamps` activés (`createdAt` sert à la règle de rattrapage, §5.6).
+Index : **unique** `{centerId, serviceId, productId}` ; `{organizationId, centerId, serviceId}`. La consommation d'un rendez-vous lit uniquement les recettes du centre du rendez-vous. Migration des anciennes lignes sans centre : `scripts/stock-migrate-recipes-per-center.ts`. `timestamps` activés (`createdAt` sert à la règle de rattrapage, §5.6).
 `Service` n'est pas modifié ; `Service.requiredEquipment` reste un texte libre inchangé. Limite : la recette ne tient pas compte des options choisies par le client.
 
 ### 3.5 `StockMovement` — F5.3 (journal **ajouté-seulement** : source de vérité)
@@ -256,7 +257,7 @@ Le passage aux transactions suppose alors un jeu de réplicas pour les tests et 
 - **`MaintenanceRecord`** (F5.4, implémenté) : `organizationId`, `centerId`, `equipmentId`, `performedAt` (jour, heure de Tunis, jamais dans le futur), `note` (≤ 200), `nextDueAt` (facultatif, ≥ `performedAt`), `createdBy`. Tous les champs sont immuables ; aucun service de modification ni de suppression. Index `{equipmentId, performedAt: -1}`. L'intervention la plus récente fixe `Equipment.nextMaintenanceAt` (absente = échéance retirée) ; une intervention plus ancienne saisie après coup n'y touche pas. Les échéances (en retard, aujourd'hui, planifiée) sont calculées à la lecture : ni rappel de fond ni cron.
 - **`Supplier`** (F5.5, implémenté) : `organizationId`, `name` (unique parmi les actifs, insensible à la casse), `phone` (8 chiffres tunisiens, normalisé), `email` (minuscules), `leadTimeDays` (0 à 365), `active`. Écriture : OWNER ; lecture : OWNER et MANAGER. `StockProduct.supplierId` n'existe pas (non nécessaire à ce stade).
 - **`PurchaseOrder`** (F5.5, implémenté) : `organizationId`, `centerId`, `supplierId`, `supplierName` (copie), `status`, `lines[{productId, productName, unit, quantity}]` (1 à 50 lignes, un produit une seule fois, nom et unité recopiés depuis la base), `orderedAt`, `cancelledAt`, `receiptStartedAt`, `receivedAt`, `createdBy`. Transitions : `DRAFT → ORDERED | CANCELLED`, `ORDERED → CANCELLED | RECEIVED` (la réception passe uniquement par `receivePurchaseOrder`). Créer, modifier, passer ou annuler une commande ne modifie jamais le stock. **Réception** : un mouvement `RECEIPT` par ligne via `commitReceipt` (idempotent), projection, vérification que chaque niveau a projeté, puis `RECEIVED` ; `receiptStartedAt` est posé atomiquement au début et interdit alors l'annulation, ce qui rend la reprise sûre.
-- **`ServiceRecipe`** (F5.3, implémenté, configuration seule) : voir §3.4 ; gérée par OWNER (écriture et lecture) ; ne crée ni ne modifie aucun mouvement.
+- **`ServiceRecipe`** (F5.3, implémenté, configuration seule) : voir §3.4 ; gérée par OWNER (tous les centres) et MANAGER (ses centres) ; ne crée ni ne modifie aucun mouvement.
 - **`StockTransfer`** (F5.6, implémenté) : voir §6.1.
 - **IA** : **non faite**. Elle lirait les mouvements `CONSUMPTION`, les niveaux et `leadTimeDays` ; toute commande suggérée resterait un brouillon validé par l'utilisateur.
 
@@ -281,12 +282,25 @@ Le passage aux transactions suppose alors un jeu de réplicas pour les tests et 
 
 **Décisions prises à l'implémentation** (à valider) : (a) `requestId` obligatoire (généré par l'interface à chaque modification du formulaire) ; (b) un transfert de produit vers un centre sans niveau **crée ce niveau** (seuil 0) à destination, y compris pour un gérant (sinon il ne pourrait jamais envoyer vers un centre qu'il ne gère pas) ; (c) nouvelle collection `StockTransfer`, alors que la première version de ce document prévoyait seulement de nouveaux types de mouvement ; (d) un transfert dont le disponible tombe à 0 entre le contrôle et la sortie est abandonné (`CANCELLED`).
 
+### 6.2 F5.6 (suite) — Réception, retour, demande
+
+Ajouts à `StockTransfer` (tous optionnels : aucune migration, un ancien transfert reste valable) : `note` (motif, 200 caractères, jamais dans l'audit) ; `receiptStatus` (`AWAITING` → `CONFIRMED` ou `DISCREPANCY`), `receivedQuantity`, `receiptNote`, `receiptBy`, `receiptAt` ; `destinationActivated` ; `decisionNote`, `decidedBy`, `decidedAt` ; `reversesTransferId` (index unique partiel : un seul retour par transfert) et `reversedByTransferId`. Statuts ajoutés : `REQUESTED`, `REFUSED`.
+
+- **Réception** (`confirmTransferReceipt`) : le stock arrive à destination tout de suite ; la réception **confirme ou signale un écart, elle ne retient pas le stock et ne le corrige pas** (un écart = quantité reçue ≤ quantité transférée + motif obligatoire ; le correctif éventuel est une entrée ou une correction depuis la fiche du produit). Qui : propriétaire, ou gérant d'un centre **destinataire**. Idempotent. Un transfert antérieur (sans `receiptStatus`) n'a rien à confirmer.
+- **Annulation = retour** (`reverseTransfer`) : jamais de suppression de mouvement. Un nouveau transfert en sens inverse (identifiant de demande déterministe `reverse-<id>`), plafonné au stock encore disponible à destination (ce qui a été consommé ne revient pas). Un seul retour par transfert ; un retour n'est pas annulable. Qui : propriétaire, gérant d'un centre destinataire, ou l'auteur (gérant) tant que la réception n'est pas confirmée. Si rien ne peut revenir, le retour vide est supprimé et le transfert d'origine reste annulable.
+- **Demande** (`requestTransfer`, `answerTransferRequest`) : le propriétaire ou le gérant du centre qui a besoin du stock (**son** centre, destinataire) le demande à n'importe quel centre de l'organisation ; `REQUESTED`. Le propriétaire ou le gérant du centre **source** accepte (les contrôles d'un envoi s'appliquent avant tout changement de statut ; le transfert part, réception à confirmer) ou refuse ; le demandeur peut retirer. Une demande n'est jamais « reprenable » et n'entre pas dans l'historique de reprise.
+- **Boîte « À traiter »** (`getTransferInbox`) : transferts à recevoir (terminés, non confirmés, non annulés) et demandes adressées aux centres de l'utilisateur ; jamais filtrée par le centre affiché.
+- **Interface** : stock du centre destinataire, reste à la source, alerte de seuil, bouton « Tout », plusieurs produits par envoi (identifiants `<requestId>-<n>`), motif ; le stock d'un centre qui n'est pas celui du gérant n'est pas affiché (isolation). Historique filtrable par type et statut. Lien « Ouvrir le formulaire de transfert » depuis « Analyses IA » (adresse `?tp=&tf=&tt=&tq=`, valeurs revérifiées côté client et serveur).
+- **Audit** (identifiants, quantités, mots-clés fixes ; jamais un motif) : `STOCK_TRANSFER_RECEIVED`, `STOCK_TRANSFER_REVERSED`, `STOCK_TRANSFER_REQUESTED`, `STOCK_TRANSFER_ANSWERED`.
+- **Limites assumées** : pas de notification hors de l'application ; pas de seuil d'approbation par le propriétaire pour un gérant qui envoie vers un centre qui n'est pas le sien (la confirmation de réception et la demande couvrent le cas courant) ; ces deux points relèvent d'une décision métier.
+
 ## 7. Isolation et droits (D7)
 
 | Action | OWNER | MANAGER | STAFF / CLIENT |
 |---|---|---|---|
 | Transfert de produit ou de matériel (F5.6) | source : tous les centres ; destination : tous | source : **ses centres** ; destination : **tout centre de l'organisation** | non |
-| Définitions de produits (`StockProduct`) et recettes (`ServiceRecipe`) : créer, modifier, archiver | oui | **non** | non |
+| Définitions de produits (`StockProduct`) : créer, modifier, archiver | oui | **non** | non |
+| Recettes (`ServiceRecipe`, par centre) : créer, modifier, supprimer, lire | oui (tous les centres) | **oui, ses centres seulement** | non |
 | Matériel (`Equipment`) | tous les centres | ses centres | non |
 | Niveaux (`StockLevel`) : activer un produit existant et actif dans un centre (seuil + stock initial tracé par un mouvement `IN`), modifier le seuil. L'unité reste celle de la définition globale | tous les centres | ses centres | non |
 | Mouvements manuels, régularisation | tous les centres | ses centres | non |
@@ -314,12 +328,28 @@ Types à ajouter à `lib/enums.ts` **et** `components/dashboard/security-log.tsx
 - La recette est lue au moment de la consommation (non « figée » sur le RDV) ; elle ignore les options choisies ; une recette modifiée plus tard ne change pas les mouvements passés.
 - Les réceptions (F5.5) et les transferts (F5.6) reposent sur le même principe d'idempotence par opération ; leur reprise est démontrée au même niveau de preuve que D6 : un seul processus, MongoDB autonome en mémoire, pannes **simulées** (`lib/stock/receipts.test.ts`, `lib/stock/transfers.test.ts`).
 - **Transferts (F5.6)** : la quantité « en vol » entre la sortie et l'entrée n'est visible que dans l'historique (transfert `PENDING`) ; la somme du stock affichée par centre est temporairement inférieure jusqu'à la fin ou la reprise du transfert. La reprise est **manuelle** (bouton « Reprendre », ou nouvel envoi de la même demande) : pas de cron. Un transfert `PENDING` dont l'interface a perdu la réponse reste donc visible jusqu'à reprise. Course résiduelle étroite non testée : deux appels simultanés d'un même transfert dont le solde source passe de 0 à > 0 entre leurs deux lectures (l'abandon est alors annulé par un contrôle, mais ce chemin n'est pas couvert par un test).
-- Un transfert vers un centre sans niveau crée ce niveau à destination (seuil 0), y compris lorsque l'auteur est un gérant qui ne gère pas ce centre.
+- Un transfert vers un centre sans niveau crée ce niveau à destination, y compris lorsque l'auteur est un gérant qui ne gère pas ce centre. Le seuil d'alerte est **copié de la source** (et non plus 0) et le transfert garde `destinationActivated` : la réception invite à vérifier le seuil.
 
 ## 10. Points restants
 
 D6 à D11 sont décidées (§0) et implémentées. Écarts connus entre ce document et l'interface livrée :
 
-- **Consommation automatique** lors du passage d'un rendez-vous à `COMPLETED` : non implémentée (touche les Modules 3 et 6, accord distinct requis). Les recettes sont configurables mais sans effet. Le **rattrapage** (D9) et le compte de rendez-vous à régulariser n'existent donc pas ; la page de stock ne l'affiche pas.
+- **Consommation automatique** : implémentée (`lib/stock/consumption.ts`, `commitConsumption` dans `lib/stock/ledger.ts`). Appelée après le passage d'un rendez-vous à `COMPLETED` par les DEUX chemins qui le font : `setBookingStatus` (calendrier, `app/actions/bookings.ts`) et l'encaissement complet (`lib/finance/service.ts`) ; un échec est journalisé et ne bloque pas la clôture. Un mouvement `CONSUMPTION` par (rendez-vous, produit), somme des recettes des prestations du rendez-vous, au centre du rendez-vous, plafonné au solde (manquant enregistré). Un produit non activé dans le centre n'est pas décompté (écart volontaire avec le test 7 du §5.7 : un journal sans niveau empêcherait le stock initial de l'activation). Idempotente (index unique `{bookingId, productId}`), testée dans `lib/stock/consumption.test.ts`. **Reste à faire** : le rattrapage « Régulariser » (§5.6) n'existe pas : un rendez-vous terminé dont la consommation a échoué n'est pas repris automatiquement ; pas de restitution si le rendez-vous quitte l'état « terminé » ; la recette ignore les options choisies. Seuls les produits consommables ont une recette ; le matériel durable n'est jamais décompté.
 - **Historique des mouvements** : lecteur paginé par rang (`listStockMovementsAction`) et lecteur des mouvements récents (vue d'ensemble) ajoutés ; aucune édition ni suppression d'un mouvement n'est proposée.
-- **Transferts entre centres (F5.6)** : implémentés pour les produits et le matériel (§6.1, `/dashboard/stock` et `/dashboard/stock/materiel`, historique paginé, reprise). Non faits : transfert partiel du matériel par lot, transfert de plusieurs produits en une seule demande, notification du centre destinataire, réception à confirmer par la destination.
+- **Transferts entre centres (F5.6)** : implémentés pour les produits et le matériel (§6.1, `/dashboard/stock` et `/dashboard/stock/materiel`, historique paginé filtrable, reprise), avec la suite décrite au §6.2 : réception à confirmer, écart signalé, annulation par retour, demande de transfert, boîte « À traiter », motif, plusieurs produits par envoi (un transfert par ligne), formulaire prérempli depuis « Analyses IA ». Non faits : validation du propriétaire au-delà d'un seuil, notification hors de l'application (courriel, SMS), transfert de plusieurs équipements en une demande, export ou bon de transfert imprimable, reprise automatique des transferts interrompus (reste manuelle).
+
+## 11. IA du Module 5 : prévision de consommation et commande suggérée
+
+Implémentée : `lib/stock/forecast.ts` (calcul pur), `lib/stock/forecast-data.ts` (lecture avec les droits du stock), `lib/stock/forecast-explain.ts` (phrase Gemini ou de secours), section « Prévisions et commandes suggérées » de la vue d'ensemble (`components/stock/forecast-panel.tsx`), action `explainStockForecastAction`.
+
+- **Entrées** : mouvements `CONSUMPTION` (quantité **demandée** par les recettes, manque compris) sur 56 jours, niveau du journal, commandes `ORDERED` non reçues, délai du **fournisseur habituel** du produit (`StockProduct.supplierId`, nouveau champ facultatif, fiche produit du propriétaire).
+- **Méthode (série temporelle simple)** : lissage exponentiel (alpha 0,5) sur les totaux hebdomadaires ; coefficient par jour de la semaine avec 4 semaines ou plus ; rupture simulée jour par jour (horizon 120 jours) ; marge de sécurité = écart-type hebdomadaire × 1,65 × racine du délai en semaines ; quantité = rythme × (délai + 7 jours) + marge − stock − commandes en cours. Moins de 2 semaines d'historique : « pas assez de données », aucune date inventée.
+- **Gemini** : lit `GEMINI_API_KEY` (même variable que le catalogue), modèle `GEMINI_MODEL` (défaut `gemini-flash-lite-latest`, un alias : `gemini-2.5-*` n'est plus proposé aux nouveaux comptes et `gemini-3.1-flash-lite` a répondu 503 pendant la vérification). Il ne reçoit que des chiffres et le nom du produit ; sa réponse est refusée si elle contient un nombre absent de ces chiffres ; sans clé ou en cas d'échec, phrase de secours sans IA. Réponses gardées en mémoire pour la journée.
+- **Décision humaine** : le bouton crée un **brouillon** de commande (`createPurchaseOrderAction`), jamais une commande passée.
+- **Limites** : prévision par centre (pas de regroupement) ; l'historique commence à la première consommation du produit dans le centre ; les rendez-vous à venir ne sont pas encore pris en compte (amélioration prévue) ; cache d'explications en mémoire du processus (perdu au redémarrage, non partagé entre instances) ; la qualité du calcul dépend de la consommation automatique (§10) et de recettes bien renseignées.
+
+### 11.1 Voir et tester la prévision sans attendre des semaines : historique simulé
+
+Outil de développement lancé à la main : `scripts/stock-simulate-history.ts` (logique testée dans `lib/stock/simulate-history.ts`). Il écrit, pour UN produit dans UN centre, un stock initial antidaté et une consommation par jour (profil de semaine : samedi fort, dimanche faible, ou `--flat`), de façon que le stock final soit exactement celui demandé. Il ne touche ni rendez-vous, ni commandes, ni fournisseurs, ni aucun autre module ; les consommations pointent vers des rendez-vous FICTIFS et portent la note « Simulation de démonstration ».
+
+Garde-fous : le produit doit déjà être activé dans le centre (depuis l'application) avec un journal vide ; refus s'il a un seul vrai mouvement ; le nom de la base visée est affiché et doit être retapé pour confirmer (`--yes` l'évite) ; `--dry-run` n'écrit rien ; `--undo` ne supprime que des mouvements simulés et refuse dès qu'un vrai mouvement existe. Le journal reste cohérent (`verifyLedger`). Exemple : `npx.cmd tsx scripts/stock-simulate-history.ts --product "[Démo] Shampoing" --center "Tunis" --per-day 70 --stock 300`.

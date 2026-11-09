@@ -13,13 +13,13 @@ import { inputClass, labelClass } from "@/components/calendar/status";
 import { selectClass } from "@/components/finance/finance-ui";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Alert, SubmitButton } from "@/components/ui/form";
-import { PlusIcon, TrashIcon } from "@/components/ui/icons";
+import { PlusIcon, SearchIcon, TrashIcon } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/modal";
 import { PURCHASE_ORDER_STATUSES, type PurchaseOrderStatus } from "@/lib/enums";
 import { PURCHASE_ORDER_STATUS_LABELS, STOCK_UNIT_LABELS } from "@/lib/stock/labels";
 import type { PurchaseOrderView } from "@/lib/stock/purchase-orders";
 import type { SupplierView } from "@/lib/stock/suppliers";
-import { CenterFilter, Chip, DateText, EmptyState, FieldError, Qty, centerName, fmtQty, useFeedback, useSubmit, type CenterItem, type ChipTone, type ProductItem } from "./stock-shared";
+import { CenterFilter, Chip, DateText, EmptyState, FieldError, Qty, centerName, fmtQty, useFeedback, useSubmit, type CenterItem, type ChipTone, type ProductItem, useConfirm } from "./stock-shared";
 
 // F5.5 — Commandes d'achat et réception. Créer, modifier, passer ou annuler une commande ne touche JAMAIS le stock ; seule la réception
 // (receiveStockPurchaseOrderAction, unique point d'entrée) crédite le stock, une seule fois par ligne, avec reprise sûre après interruption.
@@ -34,6 +34,8 @@ export function OrdersManager({
   centers,
   selectedCenterId,
   orders,
+  delivery,
+  allSuppliers,
   suppliers,
   products,
   activated,
@@ -41,17 +43,38 @@ export function OrdersManager({
   centers: CenterItem[];
   selectedCenterId: string | null;
   orders: PurchaseOrderView[];
+  delivery: Record<string, { expectedAt: string; late: boolean }>;
+  allSuppliers: { id: string; name: string }[];
   suppliers: SupplierView[];
   products: ProductItem[];
   activated: Record<string, string[]>;
 }) {
   const { t } = useI18n();
   const feedback = useFeedback();
+  const dialog = useConfirm();
   const [form, setForm] = useState<{ order: PurchaseOrderView | null } | null>(null);
   const [detail, setDetail] = useState<{ id: string; problems: string[] } | null>(null);
   const [status, setStatus] = useState<PurchaseOrderStatus | "">("");
+  const [supplierId, setSupplierId] = useState("");
+  const [query, setQuery] = useState("");
   const [pending, startTransition] = useTransition();
-  const visible = useMemo(() => orders.filter((o) => !status || o.status === status), [orders, status]);
+  const needle = query.trim().toLowerCase();
+  const visible = useMemo(
+    () =>
+      orders.filter(
+        (o) =>
+          (!status || o.status === status) &&
+          (!supplierId || o.supplierId === supplierId) &&
+          (!needle || `${reference(o.id)} ${o.supplierName} ${o.lines.map((l) => l.productName).join(" ")}`.toLowerCase().includes(needle)),
+      ),
+    [orders, status, supplierId, needle],
+  );
+  // Fournisseurs présents dans les commandes affichées (y compris archivés ou supprimés : le nom vient de la commande).
+  const supplierOptions = useMemo(() => {
+    const names = new Map(allSuppliers.map((x) => [x.id, x.name]));
+    for (const o of orders) if (!names.has(o.supplierId)) names.set(o.supplierId, o.supplierName);
+    return [...new Set(orders.map((o) => o.supplierId))].map((id) => ({ id, name: names.get(id) ?? id })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [orders, allSuppliers]);
   const detailOrder = detail ? (orders.find((o) => o.id === detail.id) ?? null) : null;
 
   const run = (call: () => Promise<{ ok: boolean; message?: string; errors?: Record<string, string[]> }>, orderId?: string, order?: PurchaseOrderView) =>
@@ -65,15 +88,31 @@ export function OrdersManager({
       }
     });
 
-  const place = (o: PurchaseOrderView) => confirm(t("Passer cette commande ? Elle ne sera plus modifiable.")) && run(() => placePurchaseOrderAction({ orderId: o.id }));
-  const cancel = (o: PurchaseOrderView) => confirm(t("Annuler cette commande ?")) && run(() => cancelPurchaseOrderAction({ orderId: o.id }));
-  const receive = (o: PurchaseOrderView) => confirm(t("Réceptionner cette commande ? Le stock de chaque ligne sera crédité une seule fois.")) && run(() => receiveStockPurchaseOrderAction({ orderId: o.id }), o.id, o);
+  const place = (o: PurchaseOrderView) =>
+    dialog.ask({ title: t("Passer cette commande ?"), message: t("Elle ne sera plus modifiable."), confirmLabel: t("Passer la commande") }, () => run(() => placePurchaseOrderAction({ orderId: o.id })));
+  const cancel = (o: PurchaseOrderView) =>
+    dialog.ask({ title: t("Annuler cette commande ?"), message: t("Le stock n'est pas modifié."), confirmLabel: t("Annuler la commande"), danger: true }, () => run(() => cancelPurchaseOrderAction({ orderId: o.id })));
+  const receive = (o: PurchaseOrderView) =>
+    dialog.ask({ title: t("Réceptionner cette commande ?"), message: t("Le stock de chaque ligne sera crédité une seule fois."), confirmLabel: t("Réceptionner") }, () => run(() => receiveStockPurchaseOrderAction({ orderId: o.id }), o.id, o));
 
   return (
     <div className="mt-6 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3 animate-fade-up">
         <CenterFilter centers={centers} selectedId={selectedCenterId} basePath="/dashboard/stock/commandes" />
         <div className="ms-auto flex flex-wrap items-center gap-2">
+          <label className="relative min-w-40">
+            <span className="sr-only">{t("Rechercher une commande")}</span>
+            <SearchIcon width={16} height={16} className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-white/35" />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("Rechercher une commande")} className="w-full rounded-xl border border-white/10 bg-white/[0.05] py-2 pe-3 ps-9 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-rose-gold/60" />
+          </label>
+          <select aria-label={t("Fournisseur")} value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className={selectClass}>
+            <option value="">{t("Tous les fournisseurs")}</option>
+            {supplierOptions.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name}
+              </option>
+            ))}
+          </select>
           <select aria-label={t("Statut")} value={status} onChange={(e) => setStatus(e.target.value as PurchaseOrderStatus | "")} className={selectClass}>
             <option value="">{t("Tous les statuts")}</option>
             {PURCHASE_ORDER_STATUSES.map((s) => (
@@ -122,6 +161,14 @@ export function OrdersManager({
                 {o.receivedAt && <> · {t("reçue le")} <DateText value={o.receivedAt} /></>}
                 {o.cancelledAt && <> · {t("annulée le")} <DateText value={o.cancelledAt} /></>}
               </p>
+              {delivery[o.id] && (
+                <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-white/45">
+                  <span>
+                    {t("Livraison prévue le")} <DateText value={delivery[o.id].expectedAt} />
+                  </span>
+                  {delivery[o.id].late && <Chip tone="warn">{t("En retard")}</Chip>}
+                </p>
+              )}
               <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-xs">
                 <button type="button" onClick={() => setDetail({ id: o.id, problems: [] })} className="text-white/60 hover:text-white">
                   {t("Détails")}
@@ -187,6 +234,7 @@ export function OrdersManager({
         </Modal>
       )}
       {feedback.node}
+      {dialog.node}
     </div>
   );
 }
@@ -232,7 +280,7 @@ function OrderFormModal({
   return (
     <Modal open onClose={onClose} title={t(order ? "Modifier le brouillon" : "Nouvelle commande")} wide>
       {suppliers.length === 0 ? (
-        <p className="text-sm text-white/60">{t("Aucun fournisseur actif. Le propriétaire doit d'abord en ajouter un.")}</p>
+        <p className="text-sm text-white/60"><>{t("Aucun fournisseur actif. Ajoutez-en un depuis l'onglet Fournisseurs.")}{" "}<Link href="/dashboard/stock/fournisseurs" className="text-champagne hover:underline">{t("Fournisseurs")}</Link></></p>
       ) : (
         <form
           className="space-y-4"

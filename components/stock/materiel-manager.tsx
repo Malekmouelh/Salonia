@@ -18,9 +18,9 @@ import { Modal } from "@/components/ui/modal";
 import { dayKey } from "@/lib/booking/time";
 import { EQUIPMENT_STATUSES, type EquipmentStatus } from "@/lib/enums";
 import type { EquipmentView, MaintenanceRecordView } from "@/lib/stock/equipment";
-import type { TransferView } from "@/lib/stock/transfers";
+import type { TransferInbox, TransferView } from "@/lib/stock/transfers";
 import { EQUIPMENT_STATUS_LABELS, MAINTENANCE_STATE_LABELS } from "@/lib/stock/labels";
-import { CenterFilter, Chip, DateText, EmptyState, FieldError, centerName, useFeedback, useSubmit, type CenterItem, type ChipTone } from "./stock-shared";
+import { CenterFilter, Chip, DateText, EmptyState, FieldError, centerName, useFeedback, useSubmit, type CenterItem, type ChipTone, useConfirm } from "./stock-shared";
 import { EquipmentTransferModal, TransfersPanel } from "./transfer-modals";
 
 // F5.1 / F5.4 / F5.6 — Matériel, maintenance et transferts. Le centre d'un équipement ne change que par un transfert (même identité, historique conservé). L'historique de maintenance est en
@@ -44,6 +44,8 @@ export function MaterielManager({
   destinations,
   transfers,
   transfersNextBefore,
+  inbox,
+  isOwner,
 }: {
   centers: CenterItem[];
   selectedCenterId: string | null;
@@ -52,9 +54,12 @@ export function MaterielManager({
   destinations: CenterItem[];
   transfers: TransferView[];
   transfersNextBefore: string | null;
+  inbox: TransferInbox;
+  isOwner: boolean;
 }) {
   const { t } = useI18n();
   const feedback = useFeedback();
+  const dialog = useConfirm();
   const [modal, setModal] = useState<Modal | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<EquipmentStatus | "">("");
@@ -69,11 +74,12 @@ export function MaterielManager({
   const dueSoon = schedule.filter((e) => e.maintenanceState !== "NONE");
 
   const archive = (e: EquipmentView) => {
-    if (!confirm(t("Archiver cet équipement ? Son historique de maintenance est conservé."))) return;
-    startTransition(async () => {
-      const r = await archiveEquipmentAction({ equipmentId: e.id });
-      feedback.show(r.ok ? (r.message ?? "Équipement archivé.") : (r.message ?? "Une erreur est survenue. Réessayez."), r.ok ? "success" : "error");
-    });
+    dialog.ask({ title: t("Archiver cet équipement ?"), message: t("Son historique de maintenance est conservé."), confirmLabel: t("Archiver"), danger: true }, () =>
+      startTransition(async () => {
+        const r = await archiveEquipmentAction({ equipmentId: e.id });
+        feedback.show(r.ok ? (r.message ?? "Équipement archivé.") : (r.message ?? "Une erreur est survenue. Réessayez."), r.ok ? "success" : "error");
+      }),
+    );
   };
 
   return (
@@ -188,7 +194,7 @@ export function MaterielManager({
         </ul>
       )}
 
-      <TransfersPanel initial={transfers} nextBefore={transfersNextBefore} centers={destinations} selectedCenterId={selectedCenterId} sourceCenterIds={centers.map((c) => c.id)} onFeedback={feedback.show} />
+      <TransfersPanel initial={transfers} nextBefore={transfersNextBefore} centers={destinations} selectedCenterId={selectedCenterId} sourceCenterIds={centers.map((c) => c.id)} inbox={inbox} isOwner={isOwner} onFeedback={feedback.show} />
 
       {modal?.type === "transfer" && <EquipmentTransferModal equipment={modal.equipment} destinations={destinations} onClose={() => setModal(null)} onDone={done} />}
       {modal?.type === "edit" && <EquipmentModal equipment={modal.equipment} centers={centers} defaultCenterId={selectedCenterId} onClose={() => setModal(null)} onDone={done} />}
@@ -196,6 +202,7 @@ export function MaterielManager({
       {modal?.type === "record" && <RecordModal equipment={modal.equipment} onClose={() => setModal(null)} onDone={done} />}
       {modal?.type === "history" && <MaintenanceHistoryModal equipment={modal.equipment} onClose={() => setModal(null)} />}
       {feedback.node}
+      {dialog.node}
     </div>
   );
 }

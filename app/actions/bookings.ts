@@ -16,6 +16,7 @@ import { canManageCenters, resolveCenterId } from "@/lib/data/bookings";
 import { isPhone, normalizePhone } from "@/lib/definitions";
 import { BLOCK_KINDS, type BookingStatus } from "@/lib/enums";
 import { AvailabilityBlock, Booking, Customer, Notification, WaitlistEntry } from "@/lib/models/booking";
+import { consumeStockForBooking } from "@/lib/stock/consumption";
 import { Center, Organization } from "@/lib/models/core";
 
 // Server Actions du Module 3 côté salon (calendrier, statuts, blocages, rappels, liste d'attente).
@@ -145,6 +146,15 @@ export async function setBookingStatus(bookingId: string, status: BookingStatus)
   booking.status = status;
   if (status !== "CANCELLED") booking.cancelledAt = undefined;
   await booking.save();
+  if (status === "COMPLETED") {
+    // Module 5 : les produits des recettes sortent du stock du centre (une seule fois par rendez-vous). Un échec n'annule pas la clôture.
+    try {
+      await consumeStockForBooking(String(booking._id), user.id);
+      revalidatePath("/dashboard/stock");
+    } catch (error) {
+      console.error("Consommation de stock en échec :", error);
+    }
+  }
   refresh();
   const labels: Record<BookingStatus, string> = {
     PENDING: "Rendez-vous remis en attente.",

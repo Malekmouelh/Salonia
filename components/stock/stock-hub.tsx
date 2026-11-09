@@ -2,19 +2,23 @@
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { archiveStockProductAction, repairStockLevelsAction } from "@/app/actions/stock";
-import { BarList, Panel, StatTile } from "@/components/finance/finance-ui";
+import { archiveStockProductAction, deleteStockProductAction, repairStockLevelsAction } from "@/app/actions/stock";
+import { BarList, Panel, StatTile, selectClass } from "@/components/finance/finance-ui";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { AlertIcon, BoxIcon, PlusIcon, SearchIcon } from "@/components/ui/icons";
-import type { TransferView } from "@/lib/stock/transfers";
+import type { TransferInbox, TransferView } from "@/lib/stock/transfers";
 import type { RecentMovementRow } from "@/lib/stock/movements";
 import type { StockSummary } from "@/lib/stock/overview";
 import { EQUIPMENT_STATUS_LABELS, MAINTENANCE_STATE_LABELS, PURCHASE_ORDER_STATUS_LABELS, STOCK_MOVEMENT_KIND_LABELS, STOCK_UNIT_LABELS } from "@/lib/stock/labels";
 import type { StockLevelRow } from "@/lib/stock/service";
 import { EQUIPMENT_STATUSES, PURCHASE_ORDER_STATUSES } from "@/lib/enums";
 import { ActivateModal, HistoryModal, MovementModal, ProductModal, ThresholdModal, type LevelTarget } from "./stock-modals";
-import { CenterFilter, Chip, DateText, EmptyState, Qty, centerName, fmtQty, useFeedback, type CenterItem, type ProductItem } from "./stock-shared";
-import { ProductTransferModal, TransfersPanel } from "./transfer-modals";
+import { CenterFilter, Chip, DateText, EmptyState, Qty, centerName, fmtQty, useFeedback, type CenterItem, type ProductItem, useConfirm } from "./stock-shared";
+import { ForecastPanel } from "./forecast-panel";
+import { ProductTransferModal, TransfersPanel, type TransferPrefill } from "./transfer-modals";
+import { ProductSheetModal } from "./product-sheet";
+import { countByState, filterLevels, sortLevels, type LevelSort, type StateFilter } from "@/lib/stock/level-filter";
+import type { ForecastRow } from "@/lib/stock/forecast-data";
 
 // Vue d'ensemble du stock : synthèse (chiffres réels des services), produits à surveiller, niveaux par centre, catalogue des produits.
 // Rôles : le propriétaire gère les fiches produit ; le gérant agit sur les niveaux de ses centres. Toutes les écritures passent par les
@@ -25,8 +29,9 @@ type Modal =
   | { type: "history"; target: LevelTarget }
   | { type: "threshold"; target: LevelTarget }
   | { type: "activate" }
-  | { type: "transfer"; initial: { productId: string; centerId: string } | null }
-  | { type: "product"; product: ProductItem | null };
+  | { type: "transfer"; initial: TransferPrefill | null }
+  | { type: "product"; product: ProductItem | null }
+  | { type: "sheet"; productId: string };
 
 export function StockHub({
   centers,
@@ -36,9 +41,15 @@ export function StockHub({
   recent,
   summary,
   canManageProducts,
+  suppliers,
+  forecast,
+  forecastToday,
   destinations,
   transfers,
   transfersNextBefore,
+  inbox,
+  isOwner,
+  prefill,
 }: {
   centers: CenterItem[];
   selectedCenterId: string | null;
@@ -47,16 +58,26 @@ export function StockHub({
   recent: RecentMovementRow[];
   summary: StockSummary;
   canManageProducts: boolean;
+  suppliers: { id: string; name: string }[];
+  forecast: ForecastRow[];
+  forecastToday: string;
   destinations: CenterItem[];
   transfers: TransferView[];
   transfersNextBefore: string | null;
+  inbox: TransferInbox;
+  isOwner: boolean;
+  // Transfert suggéré (lien depuis « Analyses IA ») : le formulaire s'ouvre prérempli ; rien ne part sans validation.
+  prefill: TransferPrefill | null;
 }) {
   const { t, lang } = useI18n();
   const feedback = useFeedback();
-  const [modal, setModal] = useState<Modal | null>(null);
+  const dialog = useConfirm();
+  const [modal, setModal] = useState<Modal | null>(prefill ? { type: "transfer", initial: prefill } : null);
   const [tab, setTab] = useState<"levels" | "products">("levels");
   const [query, setQuery] = useState("");
-  const [onlyAlerts, setOnlyAlerts] = useState(false);
+  const [stateFilter, setStateFilter] = useState<StateFilter>("ALL");
+  const [sort, setSort] = useState<LevelSort>("NAME");
+  const [supplierFilter, setSupplierFilter] = useState<string>("");
   const [pending, startTransition] = useTransition();
 
   const target = (l: StockLevelRow): LevelTarget => ({
@@ -70,9 +91,11 @@ export function StockHub({
   });
   const done = (message: string) => feedback.show(message);
   const needle = query.trim().toLowerCase();
+  const supplierOf = useMemo(() => Object.fromEntries(products.map((p) => [p.id, p.supplierId])), [products]);
+  const stateCounts = useMemo(() => countByState(levels), [levels]);
   const visibleLevels = useMemo(
-    () => levels.filter((l) => (!onlyAlerts || (l.lowStock && l.productActive)) && (!needle || l.productName.toLowerCase().includes(needle))),
-    [levels, onlyAlerts, needle],
+    () => sortLevels(filterLevels(levels, { state: stateFilter, supplierId: supplierFilter === "" ? null : supplierFilter, needle }, supplierOf), sort),
+    [levels, stateFilter, supplierFilter, needle, sort, supplierOf],
   );
   const visibleProducts = useMemo(() => products.filter((p) => !needle || p.name.toLowerCase().includes(needle)), [products, needle]);
   const staleItems = levels.filter((l) => l.needsRepair).map((l) => ({ productId: l.productId, centerId: l.centerId }));
@@ -80,11 +103,20 @@ export function StockHub({
   const countFormat = (value: number, l: string) => fmtQty(value, l);
 
   const archive = (p: ProductItem) => {
-    if (!confirm(t("Archiver ce produit ? Son historique est conservé."))) return;
-    startTransition(async () => {
-      const r = await archiveStockProductAction({ productId: p.id });
-      feedback.show(r.ok ? (r.message ?? "Produit archivé.") : (r.message ?? "Une erreur est survenue. Réessayez."), r.ok ? "success" : "error");
-    });
+    dialog.ask({ title: t("Archiver ce produit ?"), message: t("Son historique est conservé."), confirmLabel: t("Archiver"), danger: true }, () =>
+      startTransition(async () => {
+        const r = await archiveStockProductAction({ productId: p.id });
+        feedback.show(r.ok ? (r.message ?? "Produit archivé.") : (r.message ?? "Une erreur est survenue. Réessayez."), r.ok ? "success" : "error");
+      }),
+    );
+  };
+  const remove = (p: ProductItem) => {
+    dialog.ask({ title: t("Supprimer ce produit ?"), message: t("Cette action est irréversible. S'il a un historique, archivez-le plutôt."), confirmLabel: t("Supprimer"), danger: true }, () =>
+      startTransition(async () => {
+        const r = await deleteStockProductAction({ productId: p.id });
+        feedback.show(r.ok ? (r.message ?? "Produit supprimé.") : (r.message ?? "Une erreur est survenue. Réessayez."), r.ok ? "success" : "error");
+      }),
+    );
   };
   const repair = () =>
     startTransition(async () => {
@@ -131,6 +163,8 @@ export function StockHub({
         </div>
       )}
 
+      <ForecastPanel rows={forecast} todayKey={forecastToday} centers={centers} suppliers={suppliers} onFeedback={feedback.show} />
+
       <div className="grid gap-5 lg:grid-cols-2">
         <Panel title="Produits à surveiller" subtitle="Quantité inférieure ou égale au seuil d'alerte">
           {summary.attention.length === 0 ? (
@@ -156,7 +190,7 @@ export function StockHub({
             </ul>
           )}
           {summary.lowStockCount > summary.attention.length && (
-            <button type="button" onClick={() => { setTab("levels"); setOnlyAlerts(true); }} className="mt-3 text-xs text-champagne hover:underline">
+            <button type="button" onClick={() => { setTab("levels"); setStateFilter("WATCH"); }} className="mt-3 text-xs text-champagne hover:underline">
               {t("Voir tous les niveaux à surveiller")}
             </button>
           )}
@@ -205,7 +239,7 @@ export function StockHub({
         </Panel>
 
         <div className="lg:col-span-2">
-          <TransfersPanel initial={transfers} nextBefore={transfersNextBefore} centers={destinations} selectedCenterId={selectedCenterId} sourceCenterIds={centers.map((c) => c.id)} onFeedback={feedback.show} />
+          <TransfersPanel initial={transfers} nextBefore={transfersNextBefore} centers={destinations} selectedCenterId={selectedCenterId} sourceCenterIds={centers.map((c) => c.id)} inbox={inbox} isOwner={isOwner} products={products} onFeedback={feedback.show} />
         </div>
 
         <Panel title="Mouvements récents" subtitle="Tous produits, centres autorisés">
@@ -262,13 +296,53 @@ export function StockHub({
               className="w-full rounded-xl border border-white/10 bg-white/[0.05] py-2 pe-3 ps-9 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-rose-gold/60"
             />
           </label>
-          {tab === "levels" && (
-            <label className="flex items-center gap-2 text-sm text-white/70">
-              <input type="checkbox" checked={onlyAlerts} onChange={(e) => setOnlyAlerts(e.target.checked)} className="h-4 w-4 accent-rose-gold" />
-              {t("À surveiller seulement")}
-            </label>
-          )}
         </div>
+
+        {tab === "levels" && (
+          <div className="flex flex-wrap items-center gap-2">
+            <div role="group" aria-label={t("Filtrer par état")} className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  ["ALL", "Tous"],
+                  ["WATCH", "À surveiller"],
+                  ["OUT", "Rupture"],
+                  ["LOW", "Stock bas"],
+                  ["OK", "Stock suffisant"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={stateFilter === key}
+                  onClick={() => setStateFilter(key)}
+                  className={`rounded-full border px-3 py-1 text-xs transition ${stateFilter === key ? "border-rose-gold/60 bg-gradient-to-r from-blush/20 to-champagne/20 text-white" : "border-white/10 text-white/60 hover:bg-white/5"}`}
+                >
+                  {t(label)} (<bdi>{fmtQty(stateCounts[key], lang)}</bdi>)
+                </button>
+              ))}
+            </div>
+            <label className="ms-auto flex items-center gap-2 text-xs text-white/60">
+              {t("Fournisseur")}
+              <select value={supplierFilter} onChange={(e) => setSupplierFilter(e.target.value)} className={`${selectClass} py-1 text-xs`}>
+                <option value="">{t("Tous")}</option>
+                <option value="NONE">{t("Sans fournisseur")}</option>
+                {suppliers.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-xs text-white/60">
+              {t("Trier par")}
+              <select value={sort} onChange={(e) => setSort(e.target.value as LevelSort)} className={`${selectClass} py-1 text-xs`}>
+                <option value="NAME">{t("Nom")}</option>
+                <option value="QUANTITY">{t("Quantité croissante")}</option>
+                <option value="CRITICAL">{t("Plus critique d'abord")}</option>
+              </select>
+            </label>
+          </div>
+        )}
 
         {tab === "levels" ? (
           visibleLevels.length === 0 ? (
@@ -306,6 +380,9 @@ export function StockHub({
                       <button type="button" onClick={() => setModal({ type: "history", target: target(l) })} className="text-white/60 hover:text-white">
                         {t("Historique")}
                       </button>
+                      <button type="button" onClick={() => setModal({ type: "sheet", productId: l.productId })} className="text-white/60 hover:text-white">
+                        {t("Fiche")}
+                      </button>
                       {l.productActive && (
                         <button type="button" onClick={() => setModal({ type: "threshold", target: target(l) })} className="text-white/60 hover:text-white">
                           {t("Seuil")}
@@ -342,16 +419,28 @@ export function StockHub({
                       <bdi>{fmtQty(alerts, lang)}</bdi> {t("niveau(x) à surveiller")}
                     </p>
                   )}
-                  {canManageProducts && p.active && (
-                    <div className="mt-4 flex gap-4 text-xs">
-                      <button type="button" onClick={() => setModal({ type: "product", product: p })} className="text-white/60 hover:text-white">
-                        {t("Modifier")}
+                  <div className="mt-4 flex gap-4 text-xs">
+                    <button type="button" onClick={() => setModal({ type: "sheet", productId: p.id })} className="font-medium text-champagne hover:underline">
+                      {t("Fiche")}
+                    </button>
+                    {canManageProducts && (
+                      <>
+                      {p.active && (
+                        <button type="button" onClick={() => setModal({ type: "product", product: p })} className="text-white/60 hover:text-white">
+                          {t("Modifier")}
+                        </button>
+                      )}
+                      {p.active && (
+                        <button type="button" disabled={pending} onClick={() => archive(p)} className="text-white/60 hover:text-red-300 disabled:opacity-60">
+                          {t("Archiver")}
+                        </button>
+                      )}
+                      <button type="button" disabled={pending} onClick={() => remove(p)} className="text-white/60 hover:text-red-300 disabled:opacity-60">
+                        {t("Supprimer")}
                       </button>
-                      <button type="button" disabled={pending} onClick={() => archive(p)} className="text-white/60 hover:text-red-300 disabled:opacity-60">
-                        {t("Archiver")}
-                      </button>
-                    </div>
-                  )}
+                      </>
+                    )}
+                  </div>
                 </li>
               );
             })}
@@ -363,9 +452,26 @@ export function StockHub({
       {modal?.type === "threshold" && <ThresholdModal target={modal.target} onClose={() => setModal(null)} onDone={done} />}
       {modal?.type === "history" && <HistoryModal target={modal.target} onClose={() => setModal(null)} />}
       {modal?.type === "activate" && <ActivateModal products={products} centers={centers} defaultCenterId={selectedCenterId} onClose={() => setModal(null)} onDone={done} />}
-      {modal?.type === "transfer" && <ProductTransferModal levels={levels} sources={centers} destinations={destinations} initial={modal.initial} onClose={() => setModal(null)} onDone={done} />}
-      {modal?.type === "product" && <ProductModal product={modal.product} onClose={() => setModal(null)} onDone={done} />}
+      {modal?.type === "transfer" && <ProductTransferModal levels={levels} sources={centers} destinations={destinations} initial={modal.initial} levelsComplete={selectedCenterId === null} onClose={() => setModal(null)} onDone={done} />}
+      {modal?.type === "sheet" &&
+        (() => {
+          const product = products.find((p) => p.id === modal.productId);
+          if (!product) return null;
+          return (
+            <ProductSheetModal
+              product={product}
+              levels={levels}
+              forecast={forecast}
+              centers={centers}
+              supplierName={suppliers.find((x) => x.id === product.supplierId)?.name ?? forecast.find((f) => f.productId === product.id)?.supplierName ?? null}
+              onHistory={(l) => setModal({ type: "history", target: target(l) })}
+              onClose={() => setModal(null)}
+            />
+          );
+        })()}
+      {modal?.type === "product" && <ProductModal product={modal.product} suppliers={suppliers} onClose={() => setModal(null)} onDone={done} />}
       {feedback.node}
+      {dialog.node}
     </div>
   );
 }

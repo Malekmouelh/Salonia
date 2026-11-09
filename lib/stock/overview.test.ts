@@ -17,6 +17,7 @@ const level = (name: string, quantity: number, alertThreshold: number, extra: Pa
   projectedQuantity: quantity,
   lowStock: quantity <= alertThreshold,
   needsRepair: false,
+  lastMovementAt: null,
   ...extra,
 });
 const equipment = (id: string, status: EquipmentView["status"], maintenanceState: EquipmentView["maintenanceState"], active = true): EquipmentView => ({
