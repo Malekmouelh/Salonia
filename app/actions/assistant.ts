@@ -1,6 +1,7 @@
 "use server";
 
 import Anthropic from "@anthropic-ai/sdk";
+import { fetchWithGeminiKeys, geminiKeys } from "@/lib/ai/gemini-keys";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -39,10 +40,10 @@ function allowCall(userId: string) {
 const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
 
 async function askGemini(description: string): Promise<SetupProposal | null> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return null;
+  if (geminiKeys().length === 0) return null;
   const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+  // Plusieurs clés possibles (celles de l'équipe) : quota dépassé sur l'une → la suivante.
+  const res = await fetchWithGeminiKeys(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, (key) => ({
     method: "POST",
     headers: { "Content-Type": "application/json", "x-goog-api-key": key },
     body: JSON.stringify({
@@ -55,7 +56,7 @@ async function askGemini(description: string): Promise<SetupProposal | null> {
       },
     }),
     signal: AbortSignal.timeout(45_000),
-  });
+  }));
   if (!res.ok) throw new Error(`Gemini ${res.status} : ${(await res.text()).slice(0, 300)}`);
   const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
   const text = (data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();

@@ -26,6 +26,7 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod"; // bibliothèque de validation des données (Zod)
+import { fetchWithGeminiKeys, geminiKeys } from "@/lib/ai/gemini-keys";
 import { addDays, dayKey, fromLocal, parseDayKey, startOfLocalDay, startOfLocalMonth, startOfLocalWeek, toLocal, WEEKDAYS } from "@/lib/booking/time";
 import { classifyIntent, isArabic, MONTH_NAMES, MONTHS, norm, parseFutureMonth, REFUSAL, type FinanceIntent } from "./assistant-intent";
 import { METHOD_LABELS } from "./labels";
@@ -307,12 +308,13 @@ type GeminiPart = { text?: string; functionCall?: { name: string; args?: unknown
 type GeminiContent = { role: "user" | "model"; parts: GeminiPart[] };
 
 async function callGemini(model: string, body: unknown): Promise<GeminiContent | undefined> {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+  // Plusieurs clés possibles (celles de l'équipe) : quota dépassé sur l'une → la suivante.
+  const res = await fetchWithGeminiKeys(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, (key) => ({
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY! },
+    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(25_000),
-  });
+  }));
   if (!res.ok) throw new Error(`Gemini ${model} ${res.status} : ${(await res.text()).slice(0, 160)}`);
   const data = (await res.json()) as { candidates?: { content?: GeminiContent }[] };
   return data.candidates?.[0]?.content;
@@ -644,7 +646,7 @@ export async function financeAssistantReply(scope: Scope, orgName: string, messa
   if (intent === "greeting" || intent === "thanks") return smallTalkReply(intent, orgName, isArabic(last));
 
   // 1) Gemini (clé GEMINI_API_KEY), 2) Claude (clé ANTHROPIC_API_KEY), 3) moteur hors ligne.
-  if (process.env.GEMINI_API_KEY) {
+  if (geminiKeys().length > 0) {
     // Le même modèle mène toute la conversation d'une réponse (signatures de raisonnement) ; en cas
     // d'échec, le modèle suivant recommence la réponse depuis le début.
     for (const model of new Set([process.env.GEMINI_MODEL, ...GEMINI_MODELS].filter((m): m is string => Boolean(m)))) {
