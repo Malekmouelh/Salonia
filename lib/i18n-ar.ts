@@ -2178,4 +2178,11 @@ export const AR: Record<string, string> = {
   "Demande acceptée : le transfert est effectué.": "قُبل الطلب: تم النقل.",
   "Demande refusée.": "رُفض الطلب.",
   "Demande retirée.": "سُحب الطلب.",
+  // Assistant financier en bulle (Module 6)
+  "Assistant financier": "المساعد المالي",
+  "Chiffres, rentabilité et prévisions de votre salon": "أرقام صالونك وربحيته وتوقعاته",
+  "Fermer l'assistant financier": "إغلاق المساعد المالي",
+  "Ouvrir l'assistant financier": "فتح المساعد المالي",
+  "Prévision d'un mois futur": "توقع شهر قادم",
+  "Assistant réservé au propriétaire du salon.": "المساعد مخصص لصاحب الصالون.",
 };

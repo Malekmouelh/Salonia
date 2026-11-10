@@ -34,10 +34,12 @@ import {
   closingAnomalies,
   expenseAnomalies,
   forecastMonth,
+  projectMonth,
   revenueAnomalies,
   type Anomaly,
   type DayPoint,
   type Forecast,
+  type MonthProjection,
 } from "./analytics";
 
 // Requêtes financières contrôlées : toujours filtrées par organisation ET par centres autorisés.
@@ -349,6 +351,21 @@ export async function getForecast(scope: Scope, now = new Date()): Promise<Forec
   const remaining: { day: string; weekday: number }[] = [];
   for (let d = today; d < nextMonth; d = addDays(d, 1)) remaining.push({ day: dayKey(d), weekday: toLocal(d).weekday });
   return forecastMonth(total, monthToDate, remaining);
+}
+
+// IA — Prévision d'un mois FUTUR (1 à 12 mois d'avance) : « Quel CA en mars 2027 ? ».
+// Historique : ~13 mois de CA journalier (jusqu'à hier) pour la tendance et la saisonnalité.
+export async function getMonthProjection(scope: Scope, year: number, month: number, now = new Date()): Promise<MonthProjection> {
+  const p = toLocal(now);
+  const monthsAhead = (year - p.year) * 12 + (month - p.month);
+  if (monthsAhead < 1 || monthsAhead > 12) throw new Error("Prévision possible de 1 à 12 mois après le mois en cours.");
+  const today = startOfLocalDay(now);
+  const { total } = await getDailyRevenue(scope, { from: addDays(today, -396), to: today });
+  const days: Omit<DayPoint, "value">[] = [];
+  const end = fromLocal(month === 12 ? year + 1 : year, month === 12 ? 1 : month + 1, 1);
+  for (let d = fromLocal(year, month, 1); d < end; d = addDays(d, 1)) days.push({ day: dayKey(d), weekday: toLocal(d).weekday });
+  const key = (y: number, m: number) => `${y}-${String(m).padStart(2, "0")}`;
+  return projectMonth(total, { month: key(year, month), days, monthsAhead }, key(p.year, p.month));
 }
 
 // IA — Détection d'anomalies : CA journalier, dépenses, remboursements et remises.

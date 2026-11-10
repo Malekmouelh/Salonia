@@ -27,11 +27,11 @@ type Message = { role: "user" | "assistant"; text: string; consulted?: string[];
 // Questions suggérées (boutons) affichées tant que la conversation est vide : aide l'utilisateur à démarrer.
 const SUGGESTIONS = [
   "Quel est mon chiffre d'affaires ce mois-ci ?",
+  "Quel chiffre d'affaires prévoir le mois prochain ?",
   "Quel centre est le plus rentable ce mois-ci ?",
   "Quelles prestations se vendent le mieux ce trimestre ?",
   "Combien vais-je encaisser d'ici la fin du mois ?",
   "Y a-t-il des anomalies à surveiller ?",
-  "Comment évoluent mes dépenses le mois dernier ?",
 ];
 
 // Gras **…** et listes « - » : le reste est affiché tel quel (aucun HTML interprété).
@@ -53,7 +53,9 @@ function Rich({ text }: { text: string }) {
   );
 }
 
-export function FinanceAssistant({ centerId }: { centerId: string }) {
+// compact : affichage dans la bulle flottante (hauteur imposée par la fenêtre).
+// storageKey : la conversation est gardée pendant la session (changement de page, réouverture de la bulle).
+export function FinanceAssistant({ centerId, compact = false, storageKey }: { centerId: string; compact?: boolean; storageKey?: string }) {
   const { t, lang } = useI18n();
   // ── L'état du composant (sa « mémoire ») ──
   const [messages, setMessages] = useState<Message[]>([]); // la conversation
@@ -69,6 +71,25 @@ export function FinanceAssistant({ centerId }: { centerId: string }) {
     end.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [messages, pending]);
 
+  // Conversation de la session : relue au montage, enregistrée à chaque message (stockage du navigateur,
+  // jamais indispensable : en navigation privée ou stockage bloqué, la bulle fonctionne quand même).
+  const [restored, setRestored] = useState(!storageKey);
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(storageKey) ?? "[]") as Message[];
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- lecture unique du stockage au montage
+      if (Array.isArray(saved) && saved.length) setMessages(saved.slice(-30));
+    } catch {}
+    setRestored(true);
+  }, [storageKey]);
+  useEffect(() => {
+    if (!storageKey || !restored) return;
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify(messages.slice(-30)));
+    } catch {}
+  }, [messages, restored, storageKey]);
+
   // Envoi d'une question.
   const ask = (question: string) => {
     const q = question.trim();
@@ -81,7 +102,10 @@ export function FinanceAssistant({ centerId }: { centerId: string }) {
     setError(null);
     // Appel de la Server Action (code serveur) : on envoie le centre et l'historique de la conversation.
     startTransition(async () => {
-      const reply = await askFinanceAssistantAction({ centerId, messages: next.map(({ role, text }) => ({ role, text })) });
+      // Les 10 derniers messages (le serveur en accepte 12 au plus), en commençant par une question.
+      const recent = next.slice(-10).map(({ role, text }) => ({ role, text }));
+      while (recent[0]?.role === "assistant") recent.shift();
+      const reply = await askFinanceAssistantAction({ centerId, messages: recent });
       // `"error" in reply` : la réponse est soit une erreur, soit une réponse normale.
       if ("error" in reply) {
         setError(reply.error);
@@ -93,14 +117,14 @@ export function FinanceAssistant({ centerId }: { centerId: string }) {
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className={`flex flex-col ${compact ? "min-h-0 flex-1" : "h-full"}`}>
       {/* Zone des messages. `aria-live="polite"` : un lecteur d'écran annonce les nouveaux messages. */}
-      <div className="max-h-[26rem] min-h-40 flex-1 space-y-3 overflow-y-auto pe-1" aria-live="polite">
+      <div className={`${compact ? "min-h-0" : "max-h-[26rem] min-h-40"} flex-1 space-y-3 overflow-y-auto pe-1`} aria-live="polite">
         {/* Conversation vide : boutons de questions suggérées (en arabe ou en français selon la langue). */}
         {messages.length === 0 && (
           <div className="flex flex-wrap gap-2">
             {(lang === "ar"
-              ? ["كم مداخيل هذا الشهر؟", "أي فرع هو الأكثر ربحًا؟", "ما هي الخدمات الأكثر مبيعًا؟", "كم سأحصّل حتى آخر الشهر؟"]
+              ? ["كم مداخيل هذا الشهر؟", "ما هي توقعات مداخيل الشهر القادم؟", "أي فرع هو الأكثر ربحًا؟", "ما هي الخدمات الأكثر مبيعًا؟", "كم سأحصّل حتى آخر الشهر؟"]
               : SUGGESTIONS
             ).map((s) => (
               <button
@@ -149,7 +173,7 @@ export function FinanceAssistant({ centerId }: { centerId: string }) {
           e.preventDefault();
           ask(input);
         }}
-        className="mt-4 flex gap-2"
+        className={`${compact ? "mt-3" : "mt-4"} flex gap-2`}
       >
         <input
           value={input}

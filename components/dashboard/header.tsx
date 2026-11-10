@@ -5,6 +5,7 @@ import { LogoutIcon } from "@/components/ui/icons";
 import { Logo } from "@/components/ui/logo";
 import type { CurrentUser } from "@/lib/dal";
 import { ROLE_LABELS } from "@/lib/definitions";
+import { FinanceAssistantBubble } from "@/components/finance/finance-assistant-bubble";
 import { DashboardNav } from "./nav";
 
 export function DashboardHeader({ user }: { user: CurrentUser }) {
@@ -45,6 +46,8 @@ export function DashboardHeader({ user }: { user: CurrentUser }) {
       <div className="animate-fade-up [animation-delay:0.05s]">
         <DashboardNav role={user.role} />
       </div>
+      {/* Assistant financier en bulle (bas à droite), réservé au propriétaire. */}
+      {user.role === "OWNER" && user.organization && <FinanceAssistantBubble />}
     </>
   );
 }

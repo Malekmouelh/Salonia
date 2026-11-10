@@ -24,7 +24,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { OfflineFallback } from "@/components/pwa/offline-fallback";
 import { DashboardHeader } from "@/components/dashboard/header";
-import { AnomalyList, FinanceAssistant } from "@/components/finance/finance-assistant";
+import { AnomalyList } from "@/components/finance/finance-assistant";
 import { BarList, ExportMenu, FinanceFilters, FinanceTabs, Panel, StatTile } from "@/components/finance/finance-ui";
 import { CenterTable, ForecastSummary, Money } from "@/components/finance/finance-widgets";
 import { RevenueChart } from "@/components/finance/revenue-chart";
@@ -171,13 +171,10 @@ async function Finances({ searchParams }: { searchParams: PageProps<"/dashboard/
         </Panel>
       </div>
 
-      {/* Les deux fonctions IA interactives : alertes (anomalies) et assistant de questions */}
-      <div className="mt-5 grid gap-5 lg:grid-cols-5">
-        <Panel title="Alertes" subtitle="IA · détection d'anomalies sur les dernières semaines" className="lg:col-span-2">
+      {/* Alertes IA (anomalies). L'assistant de questions est dans la bulle en bas à droite (propriétaire). */}
+      <div className="mt-5">
+        <Panel title="Alertes" subtitle="IA · détection d'anomalies sur les dernières semaines">
           <AnomalyList anomalies={anomalies} />
-        </Panel>
-        <Panel title="Assistant d'analyse" subtitle="IA · posez une question sur vos chiffres" className="lg:col-span-3">
-          <FinanceAssistant centerId={center} />
         </Panel>
       </div>
     </>
