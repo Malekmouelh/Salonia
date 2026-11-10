@@ -1,5 +1,6 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
+import { fetchWithGeminiKeys, geminiKeys } from "@/lib/ai/gemini-keys";
 import type { PublicSalon } from "@/lib/data/public-salon";
 import { getDaySlots, type Slot } from "./availability";
 import { resolveItems } from "./create";
@@ -236,7 +237,6 @@ type GeminiPart = { text?: string; functionCall?: { name: string; args?: ToolInp
 type GeminiContent = { role: "user" | "model"; parts: GeminiPart[] };
 
 async function geminiReply(salon: PublicSalon, messages: ChatMessage[]): Promise<ChatReply> {
-  const key = process.env.GEMINI_API_KEY!;
   const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
   // Déclarations d'outils au format Gemini (sous-ensemble OpenAPI : sans additionalProperties).
   const functionDeclarations = TOOLS.map((tool) => {
@@ -247,7 +247,8 @@ async function geminiReply(salon: PublicSalon, messages: ChatMessage[]): Promise
   const proposals: ChatProposal[] = [];
 
   for (let turn = 0; turn < 6; turn++) {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    // Plusieurs clés possibles (celles de l'équipe) : quota dépassé sur l'une → la suivante.
+    const res = await fetchWithGeminiKeys(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, (key) => ({
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": key },
       body: JSON.stringify({
@@ -257,7 +258,7 @@ async function geminiReply(salon: PublicSalon, messages: ChatMessage[]): Promise
         generationConfig: { maxOutputTokens: 4096 },
       }),
       signal: AbortSignal.timeout(30_000),
-    });
+    }));
     if (!res.ok) throw new Error(`Gemini ${res.status} : ${(await res.text()).slice(0, 300)}`);
     const data = (await res.json()) as { candidates?: { content?: GeminiContent }[] };
     const content = data.candidates?.[0]?.content;
@@ -366,7 +367,7 @@ async function runTool(salon: PublicSalon, name: string, input: ToolInput, propo
 }
 
 export async function chatbotReply(salon: PublicSalon, messages: ChatMessage[]): Promise<ChatReply> {
-  if (process.env.GEMINI_API_KEY) {
+  if (geminiKeys().length > 0) {
     try {
       const reply = await geminiReply(salon, messages);
       if (reply.text || reply.proposals?.length) return reply;
