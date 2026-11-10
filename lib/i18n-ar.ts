@@ -2185,4 +2185,5 @@ export const AR: Record<string, string> = {
   "Ouvrir l'assistant financier": "فتح المساعد المالي",
   "Prévision d'un mois futur": "توقع شهر قادم",
   "Assistant réservé au propriétaire du salon.": "المساعد مخصص لصاحب الصالون.",
+  "Manque": "ينقص",
 };
