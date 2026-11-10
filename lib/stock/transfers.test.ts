@@ -131,7 +131,7 @@ describe("transfert de produit : cas nominaux et plafonnement", () => {
     assert.equal((await levelOf(shampoo, w.a1)).quantity, 70);
     const dest = await levelOf(shampoo, w.a2);
     assert.equal(dest.quantity, 30);
-    assert.equal(dest.alertThreshold, 0);
+    assert.equal(dest.alertThreshold, 10); // seuil copié de la source (10), plus 0
     assert.equal(await total(shampoo), 100);
     await assertLedgers(shampoo);
   });

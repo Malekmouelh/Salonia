@@ -1,5 +1,5 @@
 import mongoose, { Schema, type InferSchemaType, type Model } from "mongoose";
-import { EQUIPMENT_STATUSES, PURCHASE_ORDER_STATUSES, STOCK_MOVEMENT_KINDS, STOCK_TRANSFER_KINDS, STOCK_TRANSFER_STATUSES, STOCK_UNITS } from "@/lib/enums";
+import { EQUIPMENT_STATUSES, PURCHASE_ORDER_STATUSES, STOCK_MOVEMENT_KINDS, STOCK_RECEIPT_STATUSES, STOCK_TRANSFER_KINDS, STOCK_TRANSFER_STATUSES, STOCK_UNITS, SUPPLIER_CATEGORIES } from "@/lib/enums";
 
 // Module 5 : Matériel et stock (Syrine). Schéma de référence : docs/module-5-schema.md.
 // Collections : equipment, stockproducts, stocklevels, servicerecipes, stockmovements, maintenancerecords, suppliers, purchaseorders, stocktransfers.
@@ -47,6 +47,8 @@ const StockProductSchema = new Schema(
     organizationId: { type: ObjectId, ref: "Organization", required: true },
     name: { type: String, required: true, trim: true },
     unit: { type: String, enum: STOCK_UNITS, required: true },
+    // Fournisseur habituel (facultatif) : donne le délai de livraison utilisé par la prévision de commande.
+    supplierId: { type: ObjectId, ref: "Supplier" },
     active: { type: Boolean, default: true },
   },
   { timestamps: true },
@@ -77,18 +79,20 @@ StockLevelSchema.index({ productId: 1, centerId: 1 }, { unique: true });
 StockLevelSchema.index({ organizationId: 1, centerId: 1 });
 export const StockLevel = model("StockLevel", StockLevelSchema);
 
-// F5.3 — Quantité de produit consommée par prestation (gérée par OWNER). Ignore les options choisies par le client.
+// F5.3 — Quantité de produit consommée par prestation DANS UN CENTRE (gérée par OWNER) : chaque centre a sa propre recette, même pour un
+// service ou un propriétaire commun. Ignore les options choisies par le client.
 const ServiceRecipeSchema = new Schema(
   {
     organizationId: { type: ObjectId, ref: "Organization", required: true },
+    centerId: { type: ObjectId, ref: "Center", required: true },
     serviceId: { type: ObjectId, ref: "Service", required: true },
     productId: { type: ObjectId, ref: "StockProduct", required: true },
     quantityPerService: { type: Number, required: true, min: 1, validate: integer },
   },
   { timestamps: true },
 );
-ServiceRecipeSchema.index({ serviceId: 1, productId: 1 }, { unique: true });
-ServiceRecipeSchema.index({ organizationId: 1, serviceId: 1 });
+ServiceRecipeSchema.index({ centerId: 1, serviceId: 1, productId: 1 }, { unique: true });
+ServiceRecipeSchema.index({ organizationId: 1, centerId: 1, serviceId: 1 });
 export const ServiceRecipe = model("ServiceRecipe", ServiceRecipeSchema);
 
 // F5.3 — Journal des mouvements : ajouté-seulement, source de vérité du stock.
@@ -206,6 +210,8 @@ const SupplierSchema = new Schema(
     email: { type: String, trim: true, lowercase: true },
     // Délai de livraison en jours (entrée de la future prévision).
     leadTimeDays: { type: Number, default: 0, min: 0, max: 365, validate: integer },
+    // Facultative : les fournisseurs existants n'en ont pas.
+    category: { type: String, enum: SUPPLIER_CATEGORIES },
     active: { type: Boolean, default: true },
   },
   { timestamps: true },
@@ -281,6 +287,24 @@ const StockTransferSchema = new Schema(
     createdBy: { type: ObjectId, ref: "User", immutable: true },
     completedAt: Date,
     cancelledAt: Date,
+    // Motif libre de l'envoi, de la demande ou du retour (jamais repris dans le journal d'audit).
+    note: { type: String, trim: true, maxlength: 200, immutable: true },
+    // Réception par le centre destinataire (transferts terminés après l'ajout de cette étape ; absent = ancien transfert, rien à confirmer). Le stock
+    // arrive à destination tout de suite : la réception confirme ou signale un écart, elle ne retient pas le stock. Un écart ne corrige pas le stock.
+    receiptStatus: { type: String, enum: STOCK_RECEIPT_STATUSES },
+    receivedQuantity: { type: Number, min: 0, validate: { validator: (v: unknown) => v == null || Number.isInteger(v), message: "{PATH} doit être un entier." } },
+    receiptNote: { type: String, trim: true, maxlength: 200 },
+    receiptBy: { type: ObjectId, ref: "User" },
+    receiptAt: Date,
+    // Produit activé automatiquement au centre destinataire par ce transfert (seuil copié de la source : à vérifier).
+    destinationActivated: Boolean,
+    // Demande de transfert (REQUESTED → PENDING → COMPLETED, ou REFUSED / CANCELLED) : réponse du centre source.
+    decisionNote: { type: String, trim: true, maxlength: 200 },
+    decidedBy: { type: ObjectId, ref: "User" },
+    decidedAt: Date,
+    // Retour : ce transfert annule le transfert indiqué (sens inverse) ; le transfert annulé garde la trace du retour.
+    reversesTransferId: { type: ObjectId, ref: "StockTransfer", immutable: true },
+    reversedByTransferId: { type: ObjectId, ref: "StockTransfer" },
   },
   { timestamps: true },
 );
@@ -302,4 +326,6 @@ StockTransferSchema.index({ organizationId: 1, requestId: 1 }, { unique: true })
 StockTransferSchema.index({ equipmentId: 1 }, { unique: true, partialFilterExpression: { kind: "EQUIPMENT", status: "PENDING" } });
 StockTransferSchema.index({ organizationId: 1, fromCenterId: 1, createdAt: -1 });
 StockTransferSchema.index({ organizationId: 1, toCenterId: 1, createdAt: -1 });
+// Un transfert ne peut être annulé qu'une fois : un seul retour par transfert.
+StockTransferSchema.index({ reversesTransferId: 1 }, { unique: true, partialFilterExpression: { reversesTransferId: { $exists: true } } });
 export const StockTransfer = model("StockTransfer", StockTransferSchema);

@@ -1,5 +1,6 @@
 import { connectDB } from "@/lib/db";
 import type { StockMovementKind, StockUnit } from "@/lib/enums";
+import { Booking } from "@/lib/models/booking";
 import { StockMovement, StockProduct } from "@/lib/models/stock";
 import { MovementHistorySchema, RecentMovementsSchema } from "./schemas";
 import { MSG_PRODUCT_NOT_FOUND, guard, invalid, rawField, type StockActor, type StockResult } from "./service";
@@ -9,6 +10,26 @@ import { requireStockCenter, stockFilter, stockScope } from "./scope";
 // Le centre est validé par lib/stock/scope.ts, l'organisation vient de l'acteur : jamais de données d'une autre organisation ni d'un
 // centre non autorisé. Un produit inconnu ou d'une autre organisation reçoit « Produit introuvable. » (un produit archivé reste lisible).
 // Aucun identifiant d'organisation ni d'utilisateur n'est renvoyé.
+
+// Rendez-vous à l'origine d'une consommation : prestations (nom et nombre de fois) et date de début. Aucune donnée du client.
+export type BookingRef = { start: string; services: { name: string; count: number }[] };
+
+// Lit, en lecture seule, les rendez-vous cités par des mouvements. Filtré par organisation ET par centre du mouvement : un rendez-vous
+// d'une autre organisation ou d'un autre centre n'est jamais exposé. Un rendez-vous supprimé ou inconnu (simulation) est simplement absent.
+async function loadBookingRefs(organizationId: string, moves: { bookingId?: unknown; centerId: unknown }[]): Promise<Map<string, BookingRef>> {
+  const ids = [...new Set(moves.flatMap((m) => (m.bookingId ? [String(m.bookingId)] : [])))];
+  const refs = new Map<string, BookingRef>();
+  if (ids.length === 0) return refs;
+  const centers = new Map(moves.flatMap((m) => (m.bookingId ? [[String(m.bookingId), String(m.centerId)] as const] : [])));
+  const bookings = await Booking.find({ _id: { $in: ids }, organizationId }).select("centerId start items.name").lean();
+  for (const b of bookings) {
+    if (centers.get(String(b._id)) !== String(b.centerId)) continue;
+    const counts = new Map<string, number>();
+    for (const item of b.items) counts.set(item.name, (counts.get(item.name) ?? 0) + 1);
+    refs.set(String(b._id), { start: b.start.toISOString(), services: [...counts].map(([name, count]) => ({ name, count })) });
+  }
+  return refs;
+}
 
 export type MovementHistoryRow = {
   seq: number;
@@ -21,6 +42,8 @@ export type MovementHistoryRow = {
   // Références : commande d'achat (réception) ou rendez-vous (consommation), quand elles existent.
   purchaseOrderId: string | null;
   bookingId: string | null;
+  // Consommation seulement : le rendez-vous à l'origine de la sortie (date et prestations, jamais le client) ; null si le rendez-vous est introuvable.
+  booking: BookingRef | null;
   // Consommation seulement : quantité demandée par la recette et quantité manquante.
   requested: number | null;
   shortfall: number | null;
@@ -52,6 +75,7 @@ export function listStockMovements(actor: StockActor, input: unknown): Promise<S
       .limit(limit + 1)
       .lean();
     const page = rows.slice(0, limit);
+    const refs = await loadBookingRefs(organizationId, page);
     return {
       ok: true,
       productId,
@@ -68,6 +92,7 @@ export function listStockMovements(actor: StockActor, input: unknown): Promise<S
         note: m.note ?? null,
         purchaseOrderId: m.purchaseOrderId ? String(m.purchaseOrderId) : null,
         bookingId: m.bookingId ? String(m.bookingId) : null,
+        booking: m.bookingId ? (refs.get(String(m.bookingId)) ?? null) : null,
         requested: m.requested ?? null,
         shortfall: m.shortfall ?? null,
       })),
@@ -88,6 +113,7 @@ export function listRecentStockMovements(actor: StockActor, requestedCenterId?: 
     const rows = await StockMovement.find(stockFilter(scope)).sort({ createdAt: -1, _id: -1 }).limit(parsed.data.limit).lean();
     const products = await StockProduct.find({ organizationId: scope.organizationId, _id: { $in: rows.map((m) => m.productId) } }).lean();
     const byId = new Map(products.map((p) => [String(p._id), p]));
+    const refs = await loadBookingRefs(scope.organizationId, rows);
     return {
       ok: true,
       movements: rows.flatMap((m) => {
@@ -107,6 +133,7 @@ export function listRecentStockMovements(actor: StockActor, requestedCenterId?: 
             note: m.note ?? null,
             purchaseOrderId: m.purchaseOrderId ? String(m.purchaseOrderId) : null,
             bookingId: m.bookingId ? String(m.bookingId) : null,
+            booking: m.bookingId ? (refs.get(String(m.bookingId)) ?? null) : null,
             requested: m.requested ?? null,
             shortfall: m.shortfall ?? null,
           },

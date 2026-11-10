@@ -26,13 +26,14 @@ export const AUTH_EVENT_TYPES = [
   "EXPENSE_CREATED", "EXPENSE_DELETED", "FINANCE_EXPORTED",
   // Module 4 : équipe
   "STAFF_CREATED", "STAFF_HOURS_UPDATED", "STAFF_TIMEOFF_CREATED", "STAFF_TIMEOFF_UPDATED", "STAFF_TIMEOFF_DELETED",
+  "STAFF_UPDATED", "STAFF_DEACTIVATED", "STAFF_PERFORMANCE_ANALYZED", "STAFF_ASSIGNMENT_SUGGESTED", "TEAM_FORECAST_VIEWED",
   // Module 5 : matériel et stock
-  "STOCK_PRODUCT_CREATED", "STOCK_PRODUCT_UPDATED", "STOCK_PRODUCT_ARCHIVED", "STOCK_LEVEL_UPDATED", "STOCK_MOVEMENT_RECORDED",
+  "STOCK_PRODUCT_CREATED", "STOCK_PRODUCT_UPDATED", "STOCK_PRODUCT_ARCHIVED", "STOCK_PRODUCT_DELETED", "STOCK_LEVEL_UPDATED", "STOCK_MOVEMENT_RECORDED",
   "STOCK_ORDER_RECEIVED",
   "EQUIPMENT_CREATED", "EQUIPMENT_UPDATED", "EQUIPMENT_ARCHIVED", "MAINTENANCE_SCHEDULED", "MAINTENANCE_RECORDED",
-  "SUPPLIER_CREATED", "SUPPLIER_UPDATED", "SUPPLIER_ARCHIVED", "PURCHASE_ORDER_CREATED", "PURCHASE_ORDER_UPDATED", "PURCHASE_ORDER_PLACED", "PURCHASE_ORDER_CANCELLED",
+  "SUPPLIER_CREATED", "SUPPLIER_UPDATED", "SUPPLIER_ARCHIVED", "SUPPLIER_DELETED", "PURCHASE_ORDER_CREATED", "PURCHASE_ORDER_UPDATED", "PURCHASE_ORDER_PLACED", "PURCHASE_ORDER_CANCELLED",
   "STOCK_RECIPE_ADDED", "STOCK_RECIPE_UPDATED", "STOCK_RECIPE_REMOVED",
-  "STOCK_TRANSFERRED", "EQUIPMENT_TRANSFERRED",
+  "STOCK_TRANSFERRED", "EQUIPMENT_TRANSFERRED", "STOCK_TRANSFER_RECEIVED", "STOCK_TRANSFER_REVERSED", "STOCK_TRANSFER_REQUESTED", "STOCK_TRANSFER_ANSWERED",
   // Module 1 : vitrine et personnalisation
   "THEME_UPDATED", "FEATURES_UPDATED", "REVIEW_MODERATED", "REALIZATION_CREATED", "REALIZATION_DELETED",
   "PAYMENT_LINK_CANCELLED", "CASH_CLOSED", "CASH_REOPENED", "FINANCE_SETTINGS_UPDATED",
@@ -100,8 +101,16 @@ export type StockMovementKind = (typeof STOCK_MOVEMENT_KINDS)[number];
 // PENDING = enregistré, pas encore terminé (reprise possible) · COMPLETED = terminé · CANCELLED = abandonné sans effet sur le stock.
 export const STOCK_TRANSFER_KINDS = ["PRODUCT", "EQUIPMENT"] as const;
 export type StockTransferKind = (typeof STOCK_TRANSFER_KINDS)[number];
-export const STOCK_TRANSFER_STATUSES = ["PENDING", "COMPLETED", "CANCELLED"] as const;
+// REQUESTED / REFUSED : demande de transfert (le centre destinataire demande, le centre source accepte ou refuse). Réception : voir STOCK_RECEIPT_STATUSES.
+export const STOCK_TRANSFER_STATUSES = ["PENDING", "COMPLETED", "CANCELLED", "REQUESTED", "REFUSED"] as const;
+// Réception d'un transfert terminé : à confirmer par le centre destinataire, confirmée, ou confirmée avec un écart signalé. Absent = transfert antérieur à cette étape.
+export const STOCK_RECEIPT_STATUSES = ["AWAITING", "CONFIRMED", "DISCREPANCY"] as const;
+export type StockReceiptStatus = (typeof STOCK_RECEIPT_STATUSES)[number];
 export type StockTransferStatus = (typeof STOCK_TRANSFER_STATUSES)[number];
+
+// Catégorie d'un fournisseur (facultative) : sert au filtre de la page Fournisseurs.
+export const SUPPLIER_CATEGORIES = ["PRODUCTS", "COSMETICS", "EQUIPMENT", "CONSUMABLES", "OTHER"] as const;
+export type SupplierCategory = (typeof SUPPLIER_CATEGORIES)[number];
 
 // Commandes d'achat de réapprovisionnement. RECEIVED est réservé à l'étape de réception (non disponible : voir lib/stock/orders.ts).
 export const PURCHASE_ORDER_STATUSES = ["DRAFT", "ORDERED", "RECEIVED", "CANCELLED"] as const;

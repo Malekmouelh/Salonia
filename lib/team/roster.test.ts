@@ -59,10 +59,10 @@ function viewer(w: World, role: Role, centerIds: string[], withOrganization = tr
 const names = (r: Awaited<ReturnType<typeof getTeamRoster>>) => r.members.map((m) => m.firstName);
 
 describe("getTeamRoster : rôles autorisés", () => {
-  it("le propriétaire voit tout le personnel (STAFF) de l'organisation, triés par prénom", async () => {
+  it("le propriétaire voit tout le personnel et les gérants de l'organisation, triés par prénom", async () => {
     const w = await world();
     const r = await getTeamRoster(viewer(w, "OWNER", w.centers.map((c) => c.id)));
-    assert.deepEqual(names(r), ["Alice", "Bob", "Carla"]); // ni gérant ni propriétaire
+    assert.deepEqual(names(r), ["Alice", "Bob", "Carla", "Gérant Tunis"]); // personnel et gérants, pas le propriétaire
     assert.deepEqual(r.centers.map((c) => c.name), ["Tunis", "Sousse"]);
     assert.equal(r.selectedCenterId, null);
   });
@@ -70,13 +70,13 @@ describe("getTeamRoster : rôles autorisés", () => {
   it("le propriétaire voit les centres de l'organisation même sans affectation personnelle", async () => {
     const w = await world();
     const r = await getTeamRoster(viewer(w, "OWNER", []));
-    assert.deepEqual(names(r), ["Alice", "Bob", "Carla"]);
+    assert.deepEqual(names(r), ["Alice", "Bob", "Carla", "Gérant Tunis"]);
   });
 
-  it("le gérant ne voit que le personnel affecté à ses centres", async () => {
+  it("le gérant ne voit que les membres affectés à ses centres (personnel et gérants)", async () => {
     const w = await world();
     const r = await getTeamRoster(viewer(w, "MANAGER", [String(w.tunis._id)]));
-    assert.deepEqual(names(r), ["Alice", "Carla"]); // Bob (Sousse seulement) est exclu
+    assert.deepEqual(names(r), ["Alice", "Carla", "Gérant Tunis"]); // Bob (Sousse seulement) est exclu
     assert.deepEqual(r.centers.map((c) => c.name), ["Tunis"]);
   });
 
@@ -92,20 +92,20 @@ describe("getTeamRoster : rôles autorisés", () => {
   it("un gérant sans centre ne voit personne", async () => {
     const w = await world();
     const r = await getTeamRoster(viewer(w, "MANAGER", []));
-    assert.deepEqual(r, { centers: [], selectedCenterId: null, members: [] });
+    assert.deepEqual(r, { centers: [], selectedCenterId: null, members: [], creatableRoles: [] });
   });
 
   it("refuse les autres rôles (STAFF, CLIENT, SUPER_ADMIN), même affectés à un centre", async () => {
     const w = await world();
     for (const role of ["STAFF", "CLIENT", "SUPER_ADMIN"] as const) {
       const r = await getTeamRoster(viewer(w, role, w.centers.map((c) => c.id)));
-      assert.deepEqual(r, { centers: [], selectedCenterId: null, members: [] }, role);
+      assert.deepEqual(r, { centers: [], selectedCenterId: null, members: [], creatableRoles: [] }, role);
     }
   });
 
   it("ne renvoie rien sans organisation", async () => {
     const w = await world();
-    assert.deepEqual(await getTeamRoster(viewer(w, "OWNER", [], false)), { centers: [], selectedCenterId: null, members: [] });
+    assert.deepEqual(await getTeamRoster(viewer(w, "OWNER", [], false)), { centers: [], selectedCenterId: null, members: [], creatableRoles: [] });
   });
 });
 
@@ -123,13 +123,13 @@ describe("getTeamRoster : filtre par centre", () => {
     const manager = viewer(w, "MANAGER", [String(w.tunis._id)]);
     const outOfScope = await getTeamRoster(manager, { centerId: String(w.sousse._id) });
     assert.equal(outOfScope.selectedCenterId, null);
-    assert.deepEqual(names(outOfScope), ["Alice", "Carla"]); // retombe sur son périmètre, sans révéler Bob
+    assert.deepEqual(names(outOfScope), ["Alice", "Carla", "Gérant Tunis"]); // retombe sur son périmètre, sans révéler Bob
 
     const otherOrg = await createOrg("Autre salon");
     const foreign = await createCenter(otherOrg._id, "Étranger");
     const unknown = await getTeamRoster(viewer(w, "OWNER", []), { centerId: String(foreign._id) });
     assert.equal(unknown.selectedCenterId, null);
-    assert.deepEqual(names(unknown), ["Alice", "Bob", "Carla"]);
+    assert.deepEqual(names(unknown), ["Alice", "Bob", "Carla", "Gérant Tunis"]);
     const garbage = await getTeamRoster(viewer(w, "OWNER", []), { centerId: "pas-un-id" });
     assert.equal(garbage.selectedCenterId, null);
   });
@@ -219,10 +219,10 @@ describe("getTeamRoster : champs facultatifs et comptes anciens", () => {
   it("canEditHours : le propriétaire toujours, le gérant seulement si tous les centres de l'employé sont les siens", async () => {
     const w = await world();
     const asOwner = await getTeamRoster(viewer(w, "OWNER", []));
-    assert.deepEqual(asOwner.members.map((m) => [m.firstName, m.canEditHours]), [["Alice", true], ["Bob", true], ["Carla", true]]);
+    assert.deepEqual(asOwner.members.map((m) => [m.firstName, m.canEditHours]), [["Alice", true], ["Bob", true], ["Carla", true], ["Gérant Tunis", false]]); // un gérant n'est pas un praticien
     // Gérant de Tunis : Alice (Tunis seul) modifiable ; Carla (Tunis + Sousse) partagée, donc non modifiable.
     const asManager = await getTeamRoster(viewer(w, "MANAGER", [String(w.tunis._id)]));
-    assert.deepEqual(asManager.members.map((m) => [m.firstName, m.canEditHours]), [["Alice", true], ["Carla", false]]);
+    assert.deepEqual(asManager.members.map((m) => [m.firstName, m.canEditHours]), [["Alice", true], ["Carla", false], ["Gérant Tunis", false]]);
     // Gérant des deux centres : Carla est entièrement dans son périmètre.
     const both = await getTeamRoster(viewer(w, "MANAGER", w.centers.map((c) => c.id)));
     assert.equal(find(both, "Carla").canEditHours, true);
@@ -233,7 +233,7 @@ describe("getTeamRoster : champs facultatifs et comptes anciens", () => {
     await createUser(w.org._id, [w.tunis._id], "Zoé");
     await createUser(w.org._id, [w.tunis._id], "Émilie");
     const r = await getTeamRoster(viewer(w, "OWNER", []));
-    assert.deepEqual(names(r), ["Alice", "Bob", "Carla", "Émilie", "Zoé"]);
+    assert.deepEqual(names(r), ["Alice", "Bob", "Carla", "Émilie", "Gérant Tunis", "Zoé"]);
   });
 
   it("renvoie une liste vide, avec les centres, quand il n'y a aucun personnel", async () => {
@@ -248,7 +248,7 @@ describe("getTeamRoster : champs facultatifs et comptes anciens", () => {
   it("n'expose que les champs nécessaires à l'affichage (ni e-mail, ni téléphone, ni mot de passe)", async () => {
     const w = await world();
     const r = await getTeamRoster(viewer(w, "OWNER", []));
-    assert.deepEqual(Object.keys(r.members[0]).sort(), ["canEditHours", "centers", "firstName", "hasCustomHours", "id", "jobTitle", "lastName", "skills", "timeOff", "workingHours"]);
+    assert.deepEqual(Object.keys(r.members[0]).sort(), ["canEditHours", "canManageAccount", "centers", "firstName", "hasCustomHours", "id", "jobTitle", "lastName", "role", "skills", "timeOff", "workingHours"]);
   });
 });
 
@@ -305,7 +305,7 @@ describe("getTeamRoster : résumé des absences (en cours / prochaine), sans mot
     await StaffTimeOff.create({ organizationId: other._id, userId: w.alice._id, kind: "LEAVE", start: fromLocal(2030, 1, 6), end: fromLocal(2030, 1, 9), allDay: true }); // incohérente : autre organisation
     await add(w, w.bob, "LEAVE", fromLocal(2030, 1, 6), fromLocal(2030, 1, 9)); // Bob : Sousse, invisible du gérant de Tunis
     const manager = await getTeamRoster(viewer(w, "MANAGER", [String(w.tunis._id)]), { now: NOW });
-    assert.deepEqual(manager.members.map((m) => m.firstName), ["Alice", "Carla"]);
+    assert.deepEqual(manager.members.map((m) => m.firstName), ["Alice", "Carla", "Gérant Tunis"]);
     assert.deepEqual(summaryOf(manager, "Alice"), { current: null, next: null });
     assert.ok(!JSON.stringify(manager).includes(String(w.bob._id)));
   });
@@ -314,7 +314,7 @@ describe("getTeamRoster : résumé des absences (en cours / prochaine), sans mot
     const w = await world();
     await add(w, w.alice, "LEAVE", fromLocal(2030, 1, 6), fromLocal(2030, 1, 9));
     for (const role of ["STAFF", "CLIENT", "SUPER_ADMIN"] as const) {
-      assert.deepEqual(await getTeamRoster(viewer(w, role, w.centers.map((c) => c.id)), { now: NOW }), { centers: [], selectedCenterId: null, members: [] }, role);
+      assert.deepEqual(await getTeamRoster(viewer(w, role, w.centers.map((c) => c.id)), { now: NOW }), { centers: [], selectedCenterId: null, members: [], creatableRoles: [] }, role);
     }
   });
 });

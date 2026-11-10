@@ -13,25 +13,27 @@ const labelClass = "mb-1.5 block text-xs font-medium uppercase tracking-wider te
 
 type Errors = Record<string, string[] | undefined>;
 
-// F4 — Ajouter un membre du personnel (compte STAFF avec mot de passe temporaire).
+// F4 — Ajouter un membre de l'équipe (gérant ou personnel, selon le rôle choisi) avec un mot de passe temporaire.
 // Monté seulement quand il est ouvert : le formulaire, et surtout le mot de passe saisi, sont oubliés à la fermeture.
 export function StaffModal({
   centers,
   defaultCenterId,
   suggestions,
+  roles,
   onClose,
   onCreated,
 }: {
   centers: { id: string; name: string }[];
   defaultCenterId: string | null;
   suggestions: string[];
+  roles: { key: string; label: string }[];
   onClose: () => void;
   onCreated: (message: string) => void;
 }) {
   const { t } = useI18n();
   const uid = useId();
   const [pending, startTransition] = useTransition();
-  const [form, setForm] = useState({ firstName: "", lastName: "", email: "", phone: "", password: "", jobTitle: "" });
+  const [form, setForm] = useState({ firstName: "", lastName: "", email: "", phone: "", password: "", teamRole: "" });
   const [skills, setSkills] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState("");
   const [centerIds, setCenterIds] = useState<string[]>(defaultCenterId ? [defaultCenterId] : centers.length === 1 ? [centers[0].id] : []);
@@ -39,7 +41,7 @@ export function StaffModal({
   const [errors, setErrors] = useState<Errors>({});
   const [message, setMessage] = useState<string | null>(null);
 
-  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const addSkill = () => {
     if (!skillInput.trim()) return;
@@ -138,9 +140,14 @@ export function StaffModal({
         </div>
 
         <label className="block">
-          <span className={labelClass}>{t("Poste")}</span>
-          <input className={inputClass} value={form.jobTitle} onChange={set("jobTitle")} autoComplete="off" {...describe("jobTitle")} />
-          {fieldError("jobTitle")}
+          <span className={labelClass}>{t("Rôle")}</span>
+          <select className={inputClass} value={form.teamRole} onChange={set("teamRole")} {...describe("teamRole")}>
+            <option value="" className="bg-plum-900">{t("Choisir un rôle…")}</option>
+            {roles.map((r) => (
+              <option key={r.key} value={r.key} className="bg-plum-900">{t(r.label)}</option>
+            ))}
+          </select>
+          {fieldError("teamRole")}
         </label>
 
         <div>

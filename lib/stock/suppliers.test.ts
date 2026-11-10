@@ -3,9 +3,9 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { startTestDb, type TestDb } from "@/lib/booking/test-support";
-import { Supplier } from "@/lib/models/stock";
+import { PurchaseOrder, Supplier } from "@/lib/models/stock";
 import { MSG_STOCK_FORBIDDEN } from "./scope";
-import { MSG_SUPPLIER_ARCHIVED, MSG_SUPPLIER_NAME_TAKEN, MSG_SUPPLIER_NOT_FOUND, archiveSupplier, createSupplier, listSuppliers, updateSupplier } from "./suppliers";
+import { MSG_SUPPLIER_ARCHIVED, MSG_SUPPLIER_HAS_ORDERS, MSG_SUPPLIER_NAME_TAKEN, MSG_SUPPLIER_NOT_FOUND, archiveSupplier, createSupplier, deleteSupplier, listSuppliers, updateSupplier } from "./suppliers";
 import { expectFail, expectOk, forbiddenActors, id, makeWorld, newId, type World } from "./test-fixtures";
 
 let db: TestDb;
@@ -30,6 +30,7 @@ describe("droits", () => {
         ["createSupplier", await createSupplier(who, { name: "X" })],
         ["updateSupplier", await updateSupplier(who, { supplierId: s.id, name: "Y" })],
         ["archiveSupplier", await archiveSupplier(who, { supplierId: s.id })],
+        ["deleteSupplier", await deleteSupplier(who, { supplierId: s.id })],
         ["listSuppliers", await listSuppliers(who)],
       ] as const) assert.equal(expectFail(result, MSG_STOCK_FORBIDDEN).message, MSG_STOCK_FORBIDDEN, `${label} : ${name}`);
     }
@@ -37,14 +38,56 @@ describe("droits", () => {
     assert.equal((await Supplier.findById(s.id).lean())!.name, "Distri Beauté");
   });
 
-  it("le gérant lit les fournisseurs mais ne les crée, modifie ni archive", async () => {
-    const s = await supplier();
+  it("le gérant gère les fournisseurs de l'organisation (créer, modifier, archiver, supprimer) ; jamais ceux d'une autre organisation", async () => {
     const manager = w.managerA(w.a1);
-    expectFail(await createSupplier(manager, { name: "Autre" }), MSG_STOCK_FORBIDDEN);
-    expectFail(await updateSupplier(manager, { supplierId: s.id, name: "Autre" }), MSG_STOCK_FORBIDDEN);
-    expectFail(await archiveSupplier(manager, { supplierId: s.id }), MSG_STOCK_FORBIDDEN);
-    assert.deepEqual(expectOk(await listSuppliers(manager)).suppliers.map((x) => x.name), ["Distri Beauté"]);
-    assert.deepEqual(expectOk(await listSuppliers(w.managerA())).suppliers.map((x) => x.name), ["Distri Beauté"]); // gérant sans centre : lecture permise, comme les définitions de produits
+    const mine = expectOk(await createSupplier(manager, { name: "Fournisseur du gérant", category: "EQUIPMENT" })).supplier;
+    assert.equal(String((await Supplier.findById(mine.id).lean())!.organizationId), id(w.orgA));
+    assert.equal(expectOk(await updateSupplier(manager, { supplierId: mine.id, leadTimeDays: 3 })).supplier.leadTimeDays, 3);
+    expectOk(await archiveSupplier(manager, { supplierId: mine.id }));
+    expectOk(await deleteSupplier(manager, { supplierId: mine.id }));
+    assert.equal(await Supplier.countDocuments(), 0);
+
+    const foreign = await supplier(w.ownerB(), "Autre organisation");
+    expectFail(await updateSupplier(manager, { supplierId: foreign.id, name: "X" }), MSG_SUPPLIER_NOT_FOUND);
+    expectFail(await archiveSupplier(manager, { supplierId: foreign.id }), MSG_SUPPLIER_NOT_FOUND);
+    expectFail(await deleteSupplier(manager, { supplierId: foreign.id }), MSG_SUPPLIER_NOT_FOUND);
+    assert.equal(await Supplier.countDocuments(), 1);
+    assert.deepEqual(expectOk(await listSuppliers(w.managerA())).suppliers.map((x) => x.name), []); // gérant sans centre : lecture permise, aucun fournisseur de son organisation
+  });
+});
+
+describe("suppression et catégorie", () => {
+  it("supprime définitivement un fournisseur sans commande (actif ou archivé) ; un fournisseur déjà supprimé est introuvable", async () => {
+    const active = await supplier(w.ownerA(), "A supprimer");
+    const archived = await supplier(w.ownerA(), "Archivé puis supprimé");
+    expectOk(await archiveSupplier(w.ownerA(), { supplierId: archived.id }));
+    expectOk(await deleteSupplier(w.ownerA(), { supplierId: active.id }));
+    expectOk(await deleteSupplier(w.ownerA(), { supplierId: archived.id }));
+    assert.equal(await Supplier.countDocuments(), 0);
+    expectFail(await deleteSupplier(w.ownerA(), { supplierId: active.id }), MSG_SUPPLIER_NOT_FOUND);
+    expectFail(await deleteSupplier(w.ownerA(), { supplierId: "pas-un-id" }));
+  });
+
+  it("refuse la suppression dès qu'une commande (même annulée) référence le fournisseur : il reste, on propose l'archivage", async () => {
+    const s = await supplier();
+    await PurchaseOrder.create({ organizationId: id(w.orgA), centerId: id(w.a1), supplierId: s.id, supplierName: s.name, status: "CANCELLED", lines: [{ productId: newId(), productName: "Gel", unit: "ML", quantity: 5 }] });
+    expectFail(await deleteSupplier(w.ownerA(), { supplierId: s.id }), MSG_SUPPLIER_HAS_ORDERS);
+    expectFail(await deleteSupplier(w.managerA(w.a1), { supplierId: s.id }), MSG_SUPPLIER_HAS_ORDERS);
+    assert.equal(await Supplier.countDocuments(), 1);
+    expectOk(await archiveSupplier(w.ownerA(), { supplierId: s.id }));
+  });
+
+  it("la catégorie est facultative, validée, modifiable et effaçable ; une valeur inconnue est refusée", async () => {
+    const s = await supplier(w.ownerA(), "Catégorisé", { category: "COSMETICS" });
+    assert.equal(s.category, "COSMETICS");
+    assert.equal((await supplier(w.ownerA(), "Sans catégorie")).category, null);
+    assert.equal(expectOk(await updateSupplier(w.ownerA(), { supplierId: s.id, category: "EQUIPMENT" })).supplier.category, "EQUIPMENT");
+    assert.equal(expectOk(await updateSupplier(w.ownerA(), { supplierId: s.id, category: "" })).supplier.category, null);
+    for (const category of ["PIRATE", 5, { $ne: "" }]) {
+      expectFail(await createSupplier(w.ownerA(), { name: "Mauvaise catégorie", category }));
+      expectFail(await updateSupplier(w.ownerA(), { supplierId: s.id, category }));
+    }
+    assert.equal(await Supplier.countDocuments({ name: "Mauvaise catégorie" }), 0);
   });
 });
 

@@ -3,9 +3,11 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { Types } from "mongoose";
-import { startTestDb, type TestDb } from "@/lib/booking/test-support";
+import { createCustomer, createService, createUser, startTestDb, type TestDb } from "@/lib/booking/test-support";
+import { Booking } from "@/lib/models/booking";
 import { StockMovement } from "@/lib/models/stock";
 import { commitReceipt, projectLevel } from "./ledger";
+import { listStockLevels } from "./service";
 import { listRecentStockMovements, listStockMovements } from "./movements";
 import { MSG_STOCK_CENTER_NOT_FOUND, MSG_STOCK_FORBIDDEN } from "./scope";
 import { MSG_PRODUCT_NOT_FOUND, activateProductInCenter, archiveProduct, createProduct, recordStockMovement } from "./service";
@@ -132,6 +134,42 @@ describe("contenu renvoyé", () => {
     assert.ok(h.movements.every((m) => !Number.isNaN(Date.parse(m.createdAt)) && m.createdAt.endsWith("Z")));
     const json = JSON.stringify(h);
     assert.ok(!json.includes(id(w.orgA)) && !/createdBy|organizationId/.test(json));
+  });
+
+  it("une consommation indique le rendez-vous d'origine (prestations et date, jamais le client) ; autre centre, autre organisation ou rendez-vous inconnu : null", async () => {
+    const cut = await createService(w.orgA._id, 45, 35, "Coupe femme");
+    const brush = await createService(w.orgA._id, 30, 25, "Brushing");
+    const customer = await createCustomer(w.orgA._id);
+    const book = async (center: typeof w.a1) => {
+      const staff = await createUser(w.orgA._id, [center._id], "Amira");
+      const start = new Date("2030-01-07T09:00:00Z");
+      return Booking.create({ organizationId: w.orgA._id, centerId: center._id, customerId: customer._id, staffId: staff._id, items: [cut, cut, brush].map((svc) => ({ serviceId: svc._id, name: String(svc.name), durationMinutes: 30, priceTnd: 20 })), totalTnd: 60, start, end: new Date(start.getTime() + 3_600_000), status: "COMPLETED", source: "STAFF" });
+    };
+    const here = await book(w.a1);
+    const elsewhere = await book(w.a2); // rendez-vous du centre 2 cité par un mouvement du centre 1 : ne doit pas fuiter
+    const key = { organizationId: w.orgA._id, productId: new Types.ObjectId(shampoo), centerId: w.a1._id };
+    await StockMovement.create({ ...key, kind: "CONSUMPTION", seq: 2, delta: -30, balanceAfter: 970, requested: 30, shortfall: 0, bookingId: here._id });
+    await StockMovement.create({ ...key, kind: "CONSUMPTION", seq: 3, delta: -30, balanceAfter: 940, requested: 30, shortfall: 0, bookingId: elsewhere._id });
+    await StockMovement.create({ ...key, kind: "CONSUMPTION", seq: 4, delta: -30, balanceAfter: 910, requested: 30, shortfall: 0, bookingId: new Types.ObjectId() });
+    const [unknown, other, mine] = expectOk(await history()).movements;
+    assert.deepEqual(mine.booking, { start: "2030-01-07T09:00:00.000Z", services: [{ name: "Coupe femme", count: 2 }, { name: "Brushing", count: 1 }] });
+    assert.equal(other.booking, null);
+    assert.equal(unknown.booking, null);
+    assert.ok(!JSON.stringify(mine).includes(id(customer)));
+    const recent = expectOk(await listRecentStockMovements(w.ownerA(), id(w.a1), { limit: 10 })).movements;
+    assert.equal(recent.find((m) => m.seq === 2)?.booking?.services[0].name, "Coupe femme");
+  });
+
+  it("les niveaux indiquent la date du dernier mouvement, null s'il n'y en a aucun, et jamais celle d'un autre centre", async () => {
+    const empty = expectOk(await activateProductInCenter(w.ownerA(), { productId: shampoo, centerId: id(w.a2), alertThreshold: 5, initialQuantity: 0 }));
+    assert.ok(empty);
+    expectOk(await recordStockMovement(w.ownerA(), { productId: shampoo, centerId: id(w.a1), kind: "OUT", quantity: 10 }));
+    const levels = expectOk(await listStockLevels(w.ownerA())).levels;
+    const one = levels.find((l) => l.centerId === id(w.a1))!;
+    const two = levels.find((l) => l.centerId === id(w.a2))!;
+    const last = (await StockMovement.findOne({ productId: shampoo, centerId: w.a1._id }).sort({ seq: -1 }).lean())!;
+    assert.equal(one.lastMovementAt, last.createdAt!.toISOString());
+    assert.equal(two.lastMovementAt, null);
   });
 
   it("références de commande (réception) et de rendez-vous (consommation) quand elles existent, null sinon", async () => {

@@ -435,7 +435,8 @@ function allowQuestion(userId: string) {
 
 export async function askFinanceAssistantAction(input: z.input<typeof ChatSchema>): Promise<FinanceReply | { error: string }> {
   const user = await getCurrentUser();
-  if (!canViewFinance(user) || !user.organization) return { error: "Accès refusé." };
+  // Assistant financier réservé au PROPRIÉTAIRE : il répond sur les données de tout son salon.
+  if (user.role !== "OWNER" || !user.organization) return { error: "Assistant réservé au propriétaire du salon." };
   const parsed = ChatSchema.safeParse(input);
   // Le dernier message doit être une QUESTION de l'utilisateur (pas un message « assistant » forgé).
   if (!parsed.success || parsed.data.messages.at(-1)?.role !== "user") return { error: "Question invalide." };

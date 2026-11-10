@@ -7,13 +7,14 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import { Types } from "mongoose";
 import { createCenter, createOrg, resetTestDb, startTestDb, type TestDb } from "@/lib/booking/test-support";
 import type { Role } from "@/lib/enums";
-import { Equipment, ServiceRecipe, StockLevel, StockMovement, StockProduct } from "@/lib/models/stock";
+import { Equipment, PurchaseOrder, ServiceRecipe, StockLevel, StockMovement, StockProduct } from "@/lib/models/stock";
 import { MSG_INSUFFICIENT_STOCK } from "./errors";
 import { commitMovement } from "./ledger";
 import {
   activateProductInCenter,
   archiveProduct,
   createProduct,
+  deleteProduct,
   listProducts,
   listStockLevels,
   recordStockMovement,
@@ -106,6 +107,7 @@ describe("droits : tout service refuse STAFF, CLIENT, SUPER_ADMIN et un acteur s
         ["createProduct", createProduct(who, { name: "X", unit: "G" })],
         ["updateProduct", updateProduct(who, { productId: p.id, name: "Y" })],
         ["archiveProduct", archiveProduct(who, { productId: p.id })],
+        ["deleteProduct", deleteProduct(who, { productId: p.id })],
         ["listProducts", listProducts(who)],
         ["activateProductInCenter", activate(who, p.id, a1)],
         ["updateAlertThreshold", updateAlertThreshold(who, { productId: p.id, centerId: id(a1), alertThreshold: 1 })],
@@ -114,7 +116,7 @@ describe("droits : tout service refuse STAFF, CLIENT, SUPER_ADMIN et un acteur s
         ["repairStockLevels", repairStockLevels(who, [{ productId: p.id, centerId: id(a1) }])],
       ];
       for (const [name, call] of calls) assert.equal(expectFail(await call, MSG_STOCK_FORBIDDEN).message, MSG_STOCK_FORBIDDEN, `${label} : ${name}`);
-      assert.ok(calls.length === 9, `${label} : tous les services sont couverts`);
+      assert.ok(calls.length === 10, `${label} : tous les services sont couverts`);
     }
     assert.deepEqual([await StockProduct.countDocuments(), await StockLevel.countDocuments(), await StockMovement.countDocuments()], before);
   });
@@ -125,8 +127,50 @@ describe("droits : tout service refuse STAFF, CLIENT, SUPER_ADMIN et un acteur s
     expectFail(await createProduct(manager, { name: "Gel", unit: "ML" }), MSG_STOCK_FORBIDDEN);
     expectFail(await updateProduct(manager, { productId: p.id, name: "Autre" }), MSG_STOCK_FORBIDDEN);
     expectFail(await archiveProduct(manager, { productId: p.id }), MSG_STOCK_FORBIDDEN);
+    expectFail(await deleteProduct(manager, { productId: p.id }), MSG_STOCK_FORBIDDEN);
     assert.equal((await StockProduct.findById(p.id).lean())!.name, "Shampoing");
     expectOk(await listProducts(manager)); // lecture des définitions : permise
+  });
+});
+
+describe("suppression d'un produit (OWNER)", () => {
+  it("supprime un produit sans historique, avec ses niveaux vides et ses lignes de recette ; l'archivé peut l'être aussi", async () => {
+    const p = await product();
+    expectOk(await activate(ownerA(), p.id, a1, { initialQuantity: 0 })); // niveau créé, aucun mouvement
+    await ServiceRecipe.create({ organizationId: orgA._id, centerId: a1._id, serviceId: new Types.ObjectId(), productId: p.id, quantityPerService: 10 });
+    expectOk(await deleteProduct(ownerA(), { productId: p.id }));
+    assert.equal(await StockProduct.countDocuments(), 0);
+    assert.equal(await StockLevel.countDocuments(), 0);
+    assert.equal(await ServiceRecipe.countDocuments(), 0);
+    expectFail(await deleteProduct(ownerA(), { productId: p.id }), "Produit introuvable.");
+
+    const q = await product(ownerA(), "Archivé");
+    expectOk(await archiveProduct(ownerA(), { productId: q.id }));
+    expectOk(await deleteProduct(ownerA(), { productId: q.id }));
+    assert.equal(await StockProduct.countDocuments(), 0);
+  });
+
+  it("refuse un produit qui a un mouvement ou une commande : rien n'est supprimé", async () => {
+    const moved = await product(ownerA(), "Avec mouvement");
+    expectOk(await activate(ownerA(), moved.id, a1)); // stock initial = mouvement OPENING
+    const message = "Ce produit a un historique (mouvements, commandes ou transferts) : archivez-le plutôt que de le supprimer.";
+    expectFail(await deleteProduct(ownerA(), { productId: moved.id }), message);
+    assert.equal(await StockProduct.countDocuments({ _id: moved.id }), 1);
+    assert.equal(await StockLevel.countDocuments({ productId: moved.id }), 1);
+    assert.equal((await ledger(moved.id, a1)).length, 1);
+
+    const ordered = await product(ownerA(), "Commandé");
+    await PurchaseOrder.create({ organizationId: orgA._id, centerId: a1._id, supplierId: new Types.ObjectId(), supplierName: "Distri", status: "DRAFT", lines: [{ productId: ordered.id, productName: "Commandé", unit: "ML", quantity: 5 }] });
+    expectFail(await deleteProduct(ownerA(), { productId: ordered.id }), message);
+    assert.equal(await StockProduct.countDocuments({ _id: ordered.id }), 1);
+  });
+
+  it("ne touche ni un produit d'une autre organisation ni un identifiant invalide", async () => {
+    const foreign = await product(ownerB(), "Chez B");
+    expectFail(await deleteProduct(ownerA(), { productId: foreign.id }), "Produit introuvable.");
+    expectFail(await deleteProduct(ownerA(), { productId: { $ne: "" } }));
+    expectFail(await deleteProduct(ownerA(), null));
+    assert.equal(await StockProduct.countDocuments({ _id: foreign.id }), 1);
   });
 });
 

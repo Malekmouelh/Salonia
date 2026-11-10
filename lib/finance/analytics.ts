@@ -348,3 +348,127 @@ export function backtest(history: DayPoint[]) {
   }
   return errors.length ? errors.reduce((a, b) => a + b, 0) / errors.length : null;
 }
+
+// ─────────────────────── IA — Prévision d'un mois FUTUR ───────────────────────
+// Exemple : « Quel chiffre d'affaires en février prochain ? ». Le mois en cours a déjà sa prévision
+// (forecastMonth) ; ici on projette un mois entier situé 1 à 12 mois plus tard.
+//
+// MÉTHODE (trois facteurs, chacun expliqué à l'utilisateur) :
+//   1. BASE : pour chaque jour du mois visé, la moyenne des 8 derniers mêmes jours de la semaine
+//      (un mois avec 5 samedis rapporte plus qu'un mois avec 4).
+//   2. TENDANCE : droite des moindres carrés sur les 6 derniers mois complets → croissance mensuelle
+//      (bornée à ±10 % par mois), composée sur le nombre de mois d'avance.
+//   3. SAISONNALITÉ : si le même mois de l'an dernier est connu (≥ 10 mois complets d'historique),
+//      son rapport à la moyenne mensuelle (borné entre 0,75 et 1,25).
+// INCERTITUDE : écarts des derniers mois autour de leur tendance (8 % minimum), élargie avec
+// l'horizon (× √mois d'avance) → fourchette ~80 % (± 1,28 écart-type).
+export type MonthlyPoint = { month: string; revenue: number; days: number };
+export type MonthProjection = {
+  month: string; // « 2027-02 »
+  monthsAhead: number;
+  forecast: number;
+  low: number;
+  high: number;
+  baseline: number; // base « jours de la semaine », avant tendance et saisonnalité
+  trendPercentPerMonth: number; // croissance mensuelle retenue, en %
+  seasonalFactor: number | null; // null = pas assez d'historique pour la saisonnalité
+  uncertaintyPercent: number; // demi-largeur de la fourchette, en % de la prévision
+  history: MonthlyPoint[]; // les 6 derniers mois complets (pour justifier la prévision)
+  dataMonths: number; // nombre de mois complets disponibles
+};
+
+// Totaux par mois complets : `currentMonth` (en cours, partiel) est exclu ; un mois n'est « complet »
+// que si l'historique couvre son premier jour.
+export function monthlyTotals(history: DayPoint[], currentMonth: string): MonthlyPoint[] {
+  const firstDay = history[0]?.day;
+  const totals = new Map<string, { revenue: number; days: number }>();
+  for (const p of history) {
+    const month = p.day.slice(0, 7);
+    if (month >= currentMonth) continue;
+    const t = totals.get(month) ?? { revenue: 0, days: 0 };
+    totals.set(month, { revenue: t.revenue + p.value, days: t.days + 1 });
+  }
+  return [...totals.entries()]
+    .filter(([month]) => firstDay != null && `${month}-01` >= firstDay)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, t]) => ({ month, revenue: roundTnd(t.revenue), days: t.days }));
+}
+
+// Droite des moindres carrés y = a + b·x sur x = 0, 1, 2… (renvoie a et b).
+function leastSquares(values: number[]) {
+  const n = values.length;
+  const meanX = (n - 1) / 2;
+  const meanY = values.reduce((a, b) => a + b, 0) / n;
+  let num = 0;
+  let den = 0;
+  values.forEach((y, x) => {
+    num += (x - meanX) * (y - meanY);
+    den += (x - meanX) ** 2;
+  });
+  const slope = den > 0 ? num / den : 0;
+  return { intercept: meanY - slope * meanX, slope, meanY };
+}
+
+// Croissance par mois = pente ÷ moyenne, bornée à ±10 %. On travaille sur le CA MOYEN PAR JOUR de
+// chaque mois : un mois de février (28 jours) n'est pas pris pour une baisse d'activité.
+function monthlyGrowth(daily: number[]) {
+  if (daily.length < 3) return 0;
+  const { slope, meanY } = leastSquares(daily);
+  return meanY > 0 ? Math.min(0.1, Math.max(-0.1, slope / meanY)) : 0;
+}
+const perDay = (m: MonthlyPoint) => (m.days > 0 ? m.revenue / m.days : 0);
+
+// history : CA jour par jour (jusqu'à hier inclus, idéalement ~13 mois) ;
+// targetDays : les jours du mois visé avec leur jour de la semaine ; monthsAhead : 1 à 12.
+export function projectMonth(
+  history: DayPoint[],
+  target: { month: string; days: Omit<DayPoint, "value">[]; monthsAhead: number },
+  currentMonth: string,
+): MonthProjection {
+  // On ignore la période AVANT la première recette : un salon ouvert il y a 3 mois n'a pas eu
+  // « 0 DT » l'an dernier (sinon la tendance et la saisonnalité seraient faussées).
+  const first = history.findIndex((p) => p.value !== 0);
+  history = first > 0 ? history.slice(first) : history;
+  const means = weekdayMeans(history);
+  const baseline = target.days.reduce((n, d) => n + (means.get(d.weekday)?.mean ?? 0), 0);
+  const months = monthlyTotals(history, currentMonth);
+  const recent = months.slice(-6);
+  const growth = monthlyGrowth(recent.map(perDay));
+
+  // Saisonnalité : CA moyen par jour du même mois l'an dernier, comparé à ce que prévoyait la TENDANCE
+  // des 12 derniers mois pour ce mois-là (sinon une simple croissance passerait pour un effet saisonnier).
+  let seasonal: number | null = null;
+  const lastYear = `${Number(target.month.slice(0, 4)) - 1}${target.month.slice(4)}`;
+  const year = months.slice(-12);
+  const index = year.findIndex((m) => m.month === lastYear);
+  if (index >= 0 && months.length >= 10) {
+    const line = leastSquares(year.map(perDay));
+    const expected = line.intercept + line.slope * index;
+    if (expected > 0) seasonal = Math.min(1.25, Math.max(0.75, perDay(year[index]) / expected));
+  }
+
+  const forecast = baseline * (1 + growth) ** target.monthsAhead * (seasonal ?? 1);
+  // Variabilité des derniers mois (écart-type ÷ moyenne), au moins 8 %, élargie avec l'horizon.
+  // On mesure les écarts AUTOUR DE LA TENDANCE (une croissance régulière n'est pas de l'incertitude).
+  const values = recent.map(perDay);
+  const fit = values.length > 2 ? leastSquares(values) : null;
+  const mean = values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+  const residuals = values.map((v, x) => v - (fit ? fit.intercept + fit.slope * x : mean));
+  const cv = values.length > 2 && mean > 0 ? Math.sqrt(residuals.reduce((s, r) => s + r ** 2, 0) / (values.length - 2)) / mean : 0.15;
+  const relative = Math.max(0.08, cv) * Math.sqrt(target.monthsAhead);
+  const margin = 1.28 * relative * forecast;
+
+  return {
+    month: target.month,
+    monthsAhead: target.monthsAhead,
+    forecast: roundTnd(forecast),
+    low: roundTnd(Math.max(0, forecast - margin)),
+    high: roundTnd(forecast + margin),
+    baseline: roundTnd(baseline),
+    trendPercentPerMonth: Math.round(growth * 1000) / 10,
+    seasonalFactor: seasonal == null ? null : Math.round(seasonal * 100) / 100,
+    uncertaintyPercent: Math.round(1.28 * relative * 1000) / 10,
+    history: recent,
+    dataMonths: months.length,
+  };
+}

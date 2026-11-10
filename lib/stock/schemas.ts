@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { isPhone, normalizePhone } from "@/lib/definitions";
-import { EQUIPMENT_STATUSES, STOCK_UNITS } from "@/lib/enums";
+import { EQUIPMENT_STATUSES, STOCK_UNITS, SUPPLIER_CATEGORIES } from "@/lib/enums";
 import { parseDate } from "./dates";
 import { MAX_STOCK_QUANTITY } from "./levels";
 
@@ -15,13 +15,23 @@ const Quantity = z.number("Quantité entière attendue.").int("Quantité entièr
 const ProductName = z.string("Nom requis.").trim().min(1, "Nom requis.").max(MAX_PRODUCT_NAME, `${MAX_PRODUCT_NAME} caractères au plus.`);
 const Unit = z.enum(STOCK_UNITS, "Unité invalide.");
 
-export const CreateProductSchema = z.object({ name: ProductName, unit: Unit });
+// Fournisseur habituel : identifiant, ou vide / null pour l'effacer.
+const UsualSupplier = z.union([ObjectIdString, z.literal(""), z.null()], "Identifiant invalide.").transform((v) => (v === "" ? null : v));
+
+export const CreateProductSchema = z.object({ name: ProductName, unit: Unit, supplierId: UsualSupplier.optional() });
 
 export const UpdateProductSchema = z
-  .object({ productId: ObjectIdString, name: ProductName.optional(), unit: Unit.optional() })
-  .refine((v) => v.name !== undefined || v.unit !== undefined, "Rien à modifier.");
+  .object({ productId: ObjectIdString, name: ProductName.optional(), unit: Unit.optional(), supplierId: UsualSupplier.optional() })
+  .refine((v) => v.name !== undefined || v.unit !== undefined || v.supplierId !== undefined, "Rien à modifier.");
 
 export const ProductIdSchema = z.object({ productId: ObjectIdString });
+
+// Explication d'une prévision : le produit et le centre désignent la ligne ; les chiffres sont recalculés par le serveur.
+export const ForecastExplainSchema = z.object({ productId: ObjectIdString, centerId: ObjectIdString, lang: z.enum(["fr", "ar"]).default("fr") });
+
+// Analyse IA de la consommation : la durée est une des durées proposées (resolveWindow la ramène à la valeur par défaut sinon) ; le périmètre
+// (organisation, centres) vient toujours du serveur, jamais de ce corps.
+export const ConsumptionAnalysisSchema = z.object({ days: z.number("Durée invalide.").int("Durée invalide.").optional(), lang: z.enum(["fr", "ar"]).default("fr") });
 
 export const ActivateProductSchema = z.object({
   productId: ObjectIdString,
@@ -124,16 +134,22 @@ const SupplierEmail = z
 const LeadTime = z.number("Délai invalide (0 à 365 jours).").int("Délai invalide (0 à 365 jours).").min(0, "Délai invalide (0 à 365 jours).").max(365, "Délai invalide (0 à 365 jours).");
 const SupplierId = z.string("Identifiant invalide.").regex(/^[0-9a-f]{24}$/i, "Identifiant invalide.");
 
+// Vide ou null = pas de catégorie.
+const SupplierCategoryField = z
+  .union([z.enum(SUPPLIER_CATEGORIES, "Catégorie invalide."), z.literal(""), z.null()], "Catégorie invalide.")
+  .transform((v) => (v === "" ? null : v));
+
 export const CreateSupplierSchema = z.object({
   name: SupplierName,
   phone: SupplierPhone.optional(),
   email: SupplierEmail.optional(),
+  category: SupplierCategoryField.optional(),
   leadTimeDays: LeadTime.default(0),
 });
 
 export const UpdateSupplierSchema = z
-  .object({ supplierId: SupplierId, name: SupplierName.optional(), phone: SupplierPhone.optional(), email: SupplierEmail.optional(), leadTimeDays: LeadTime.optional() })
-  .refine((v) => v.name !== undefined || v.phone !== undefined || v.email !== undefined || v.leadTimeDays !== undefined, "Rien à modifier.");
+  .object({ supplierId: SupplierId, name: SupplierName.optional(), phone: SupplierPhone.optional(), email: SupplierEmail.optional(), category: SupplierCategoryField.optional(), leadTimeDays: LeadTime.optional() })
+  .refine((v) => v.name !== undefined || v.phone !== undefined || v.email !== undefined || v.category !== undefined || v.leadTimeDays !== undefined, "Rien à modifier.");
 
 export const SupplierIdSchema = z.object({ supplierId: SupplierId });
 
@@ -160,6 +176,7 @@ export const OrderListSchema = z.object({ status: z.enum(["DRAFT", "ORDERED", "R
 // L'unité n'est jamais saisie : elle vient du produit. Seuls le service, le produit et la quantité viennent du client.
 
 export const RecipeLineSchema = z.object({
+  centerId: ObjectIdString,
   serviceId: ObjectIdString,
   productId: ObjectIdString,
   quantityPerService: z
@@ -169,9 +186,11 @@ export const RecipeLineSchema = z.object({
     .max(MAX_STOCK_QUANTITY, "Quantité trop grande."),
 });
 
-export const RecipeLineKeySchema = z.object({ serviceId: ObjectIdString, productId: ObjectIdString });
+export const RecipeLineKeySchema = z.object({ centerId: ObjectIdString, serviceId: ObjectIdString, productId: ObjectIdString });
 
-export const RecipeServiceSchema = z.object({ serviceId: ObjectIdString });
+export const RecipeCenterSchema = z.object({ centerId: ObjectIdString });
+
+export const RecipeServiceSchema = z.object({ centerId: ObjectIdString, serviceId: ObjectIdString });
 
 // ── Historique des mouvements d'un produit dans un centre (lecture) ──
 // Pagination par curseur sur le rang du journal (`seq`, unique et strictement croissant par produit et centre) : ordre déterministe,
@@ -211,15 +230,38 @@ export const TRANSFER_HISTORY_MAX_LIMIT = 50;
 
 const RequestId = z.string("Identifiant de demande invalide.").regex(/^[A-Za-z0-9_-]{16,64}$/, "Identifiant de demande invalide.");
 
-export const TransferProductSchema = z.object({
-  requestId: RequestId,
-  productId: ObjectIdString,
-  quantity: z.number("Quantité entière attendue.").int("Quantité entière attendue.").min(1, "La quantité doit être positive.").max(MAX_STOCK_QUANTITY, "Quantité trop grande."),
-});
+// Motif libre (envoi, demande, retour, écart) : 200 caractères au plus ; vide = absent. Jamais repris dans le journal d'audit.
+export const TRANSFER_NOTE_MAX = 200;
+const TransferNote = z
+  .string("Motif invalide.")
+  .trim()
+  .max(TRANSFER_NOTE_MAX, `${TRANSFER_NOTE_MAX} caractères au plus.`)
+  .optional()
+  .transform((v) => v || undefined);
+const TransferQuantity = z.number("Quantité entière attendue.").int("Quantité entière attendue.").min(1, "La quantité doit être positive.").max(MAX_STOCK_QUANTITY, "Quantité trop grande.");
 
-export const TransferEquipmentSchema = z.object({ requestId: RequestId, equipmentId: EquipmentId });
+export const TransferProductSchema = z.object({ requestId: RequestId, productId: ObjectIdString, quantity: TransferQuantity, note: TransferNote });
+
+export const TransferEquipmentSchema = z.object({ requestId: RequestId, equipmentId: EquipmentId, note: TransferNote });
 
 export const TransferIdSchema = z.object({ transferId: ObjectIdString });
+
+// Demande de transfert : le centre destinataire demande un produit à un autre centre (les centres sont validés par lib/stock/scope.ts).
+export const TransferRequestSchema = z.object({ requestId: RequestId, productId: ObjectIdString, quantity: TransferQuantity, note: TransferNote });
+
+// Réponse du centre source à une demande : accepter (le transfert part), refuser, ou retirer sa propre demande.
+export const TransferAnswerSchema = z.object({ transferId: ObjectIdString, decision: z.enum(["ACCEPT", "REFUSE", "WITHDRAW"], "Décision invalide."), note: TransferNote });
+
+// Confirmation de réception. Produit : quantité reçue (par défaut celle qui a été transférée) ; matériel : conforme ou non. Un écart exige un motif.
+export const TransferReceiptSchema = z.object({
+  transferId: ObjectIdString,
+  receivedQuantity: z.number("Quantité entière attendue.").int("Quantité entière attendue.").min(0, "La quantité ne peut pas être négative.").max(MAX_STOCK_QUANTITY, "Quantité trop grande.").optional(),
+  conforme: z.boolean("Valeur invalide.").optional(),
+  note: TransferNote,
+});
+
+// Annulation d'un transfert terminé : un transfert en sens inverse (retour), avec un motif facultatif.
+export const TransferReverseSchema = z.object({ transferId: ObjectIdString, note: TransferNote });
 
 // Historique : pagination par curseur sur l'identifiant du transfert (du plus récent au plus ancien).
 export const TransferHistorySchema = z.object({
@@ -231,4 +273,5 @@ export const TransferHistorySchema = z.object({
     .default(TRANSFER_HISTORY_DEFAULT_LIMIT),
   before: ObjectIdString.optional(),
   kind: z.enum(["PRODUCT", "EQUIPMENT"], "Type de transfert invalide.").optional(),
+  status: z.enum(["PENDING", "COMPLETED", "CANCELLED", "REQUESTED", "REFUSED"], "Statut invalide.").optional(),
 });

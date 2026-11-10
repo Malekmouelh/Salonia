@@ -49,7 +49,10 @@ async function shutdown(code = 0) {
   if (closing) return;
   closing = true;
   log("arrêt…");
-  if (child?.pid && child.exitCode === null) {
+  if (child?.pid && child.exitCode === null && process.platform === "win32") {
+    // Windows : pas de groupes POSIX ; taskkill /T arrête uniquement NOTRE enfant et ses descendants.
+    spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+  } else if (child?.pid && child.exitCode === null) {
     try {
       process.kill(-child.pid, "SIGTERM"); // groupe créé par ce script (detached) : rien d'autre n'est visé
     } catch {
@@ -88,6 +91,18 @@ function makeCopy(): string {
   const source = process.cwd();
   const target = mkdtempSync(join(tmpdir(), "salonia-stock-sandbox-"));
   copyDir = target;
+  if (process.platform === "win32") {
+    // Windows : robocopy (codes de sortie 0 à 7 = succès). Mêmes exclusions ; node_modules est copié tel quel.
+    const skipDirs = [".git", "node_modules", ".next", ".claude", ".vercel"];
+    const skipFiles = [".env*", "*.log", "*.pem", "*.tsbuildinfo"];
+    const copy = spawnSync("robocopy", [source, target, "/E", "/NFL", "/NDL", "/NJH", "/NJS", "/NP", "/XD", ...skipDirs, "/XF", ...skipFiles], { stdio: "inherit" });
+    if ((copy.status ?? 16) >= 8) throw new Error("Copie du projet impossible (robocopy).");
+    const modules = spawnSync("robocopy", [join(source, "node_modules"), join(target, "node_modules"), "/E", "/MT:16", "/NFL", "/NDL", "/NJH", "/NJS", "/NP"], { stdio: "inherit" });
+    if ((modules.status ?? 16) >= 8) throw new Error("Copie de node_modules impossible.");
+    const leaked = readdirSync(target).filter((f) => f.startsWith(".env"));
+    if (leaked.length > 0) throw new Error(`Fichier d'environnement présent dans la copie (${leaked.join(", ")}) : arrêt.`);
+    return target;
+  }
   const excludes = [".git", "node_modules", ".next", ".env*", ".claude", ".vercel", ".DS_Store", "*.log", "*.pem", "*.tsbuildinfo"];
   const rsync = spawnSync("rsync", ["-a", ...excludes.flatMap((e) => ["--exclude", e]), `${source}${sep}`, `${target}${sep}`], { stdio: "inherit" });
   if (rsync.status !== 0) throw new Error("Copie du projet impossible (rsync).");
@@ -260,7 +275,10 @@ async function seed(uri: string, dbName: string) {
   must("annulation", await cancelPurchaseOrder(owner, { orderId: cancelled }));
 
   // Recettes de consommation par service (configuration seule)
-  const recipe = async (serviceId: string, productId: string, quantityPerService: number) => must("recette", await addRecipeLine(owner, { serviceId, productId, quantityPerService }));
+  // Même recette de départ dans chaque centre (une recette est propre à un centre : le propriétaire pourra l'ajuster ensuite par centre).
+  const recipe = async (serviceId: string, productId: string, quantityPerService: number) => {
+    for (const center of centers) must("recette", await addRecipeLine(owner, { centerId: id(center), serviceId, productId, quantityPerService }));
+  };
   await recipe(id(cut), shampoo, 15);
   await recipe(id(cut), gloves, 1);
   await recipe(id(color), dye, 40);
@@ -297,7 +315,8 @@ async function main() {
     // Environnement construit de zéro : aucune variable du processus parent (secrets, MONGODB_URI…) n'est transmise.
     env: {
       PATH: process.env.PATH ?? "",
-      HOME: process.env.HOME ?? "",
+      HOME: process.env.HOME ?? process.env.USERPROFILE ?? "",
+      ...(process.platform === "win32" ? { SystemRoot: process.env.SystemRoot ?? "", USERPROFILE: process.env.USERPROFILE ?? "", APPDATA: process.env.APPDATA ?? "", LOCALAPPDATA: process.env.LOCALAPPDATA ?? "", TEMP: tmpdir(), TMP: tmpdir() } : {}),
       TMPDIR: process.env.TMPDIR ?? tmpdir(),
       LANG: process.env.LANG ?? "en_US.UTF-8",
       NODE_ENV: "development",

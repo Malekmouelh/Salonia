@@ -6,8 +6,9 @@ import type { CurrentUser } from "@/lib/dal";
 // accessibleCenterIds (lib/dal.ts) si cette règle évolue.
 //
 // Règles (cadrage D7) :
-//  - OWNER : tous les centres de son organisation ; seul à gérer les définitions de produits et les recettes.
-//  - MANAGER : uniquement ses centres d'affectation (matériel, niveaux, seuils, mouvements) ; pas les définitions de produits.
+//  - OWNER : tous les centres de son organisation ; seul à gérer les définitions de produits.
+//  - Recettes de consommation (ServiceRecipe) : propres à un centre, gérées par OWNER (tous les centres) et MANAGER (ses centres).
+//  - MANAGER : uniquement ses centres d'affectation (matériel, niveaux, seuils, mouvements, recettes) ; pas les définitions de produits.
 //  - STAFF, CLIENT, SUPER_ADMIN, ou utilisateur sans organisation : aucun accès à l'administration du stock.
 //
 // Ces fonctions décident ; elles n'exécutent aucune requête. Elles ne remplacent pas le filtre `organizationId` ni la
@@ -31,7 +32,7 @@ export function canAdministerStock(user: Actor) {
   return !!user.organization && (user.role === "OWNER" || user.role === "MANAGER");
 }
 
-// Définitions communes des produits (StockProduct) et recettes (ServiceRecipe) : propriétaire seulement.
+// Définitions communes des produits (StockProduct) : propriétaire seulement. Les recettes, elles, sont par centre : requireStockCenter.
 export function canManageProductDefinitions(user: Actor) {
   return !!user.organization && user.role === "OWNER";
 }
@@ -99,11 +100,10 @@ export function isInStockScope(user: Actor, record: { organizationId: unknown; c
   return resolveStockCenter(user, String(record.centerId)) !== null;
 }
 
-// Fournisseurs : données communes à l'organisation (comme les définitions de produits). Propriétaire seulement en écriture ;
-// le gérant les lit pour choisir un fournisseur dans une commande de son centre.
+// Fournisseurs : données communes à l'organisation. Propriétaire et gérant peuvent les créer, modifier, archiver et supprimer
+// (un gérant ne peut supprimer que s'il n'existe aucune commande liée, règle du service des fournisseurs).
 export function requireSupplierAdmin(user: Actor): string {
-  if (!canManageProductDefinitions(user) || !user.organization) throw new StockAccessError(MSG_STOCK_FORBIDDEN);
-  return user.organization.id;
+  return requireStockAdmin(user);
 }
 
 // ── Transferts entre centres (F5.6) ──
@@ -122,6 +122,18 @@ export function transferDestinations(user: Actor) {
 export function resolveTransferDestination(user: Actor, centerId: unknown): string | null {
   if (typeof centerId !== "string" || centerId === "") return null;
   return transferDestinations(user).find((c) => c.id === centerId)?.id ?? null;
+}
+
+// Garde d'une DEMANDE de transfert (sens inverse d'un envoi) : le centre destinataire (celui qui demande) est dans le périmètre de l'acteur, le
+// centre source peut être n'importe quel centre de l'organisation ; les deux sont différents.
+export function requireRequestCenters(user: Actor, fromCenterId: unknown, toCenterId: unknown): { organizationId: string; fromCenterId: string; toCenterId: string } {
+  const organizationId = requireStockAdmin(user);
+  const to = resolveStockCenter(user, toCenterId);
+  if (!to) throw new StockAccessError(MSG_STOCK_CENTER_NOT_FOUND);
+  const from = resolveTransferDestination(user, fromCenterId);
+  if (!from) throw new StockAccessError(MSG_STOCK_CENTER_NOT_FOUND);
+  if (to === from) throw new StockAccessError(MSG_TRANSFER_SAME_CENTER);
+  return { organizationId, fromCenterId: from, toCenterId: to };
 }
 
 // Garde d'un transfert : droit d'administration, source dans le périmètre de l'acteur, destination dans l'organisation, centres différents.

@@ -9,7 +9,7 @@ Next.js 16 (App Router) · TypeScript · Tailwind CSS 4 · **MongoDB Atlas (Mong
 - **Module 3 — Calendrier et réservations (Malek)** : calendrier jour/semaine/mois, disponibilités,
   réservation en ligne en 4 étapes, rappels, annulations, reports, liste d'attente, fiches clients,
   et IA : prédiction des absences, créneaux à remplir, chatbot de réservation.
-- **Module 4 — Équipe (Amine)** : liste du personnel, création de comptes STAFF, horaires individuels, congés et
+- **Module 4 — Équipe (Amine)** : liste de l'équipe avec rôles, création de comptes gérant et personnel (rôles prédéfinis), horaires individuels, congés et
   absences, planning personnel hebdomadaire. Ces données sont **enregistrées et consultables**, mais ne modifient pas
   encore les créneaux de réservation (voir « Module 4 » ci-dessous).
 - **Module 6 — Paiements, factures et pilotage financier (Salsabil)** : caisse (espèces, carte, mobile,
@@ -41,6 +41,7 @@ puis `MONGODB_URI="mongodb://127.0.0.1:27017"` dans `.env`.
 | `MONGODB_DB` | nom de la base (`salonia`, ou une base par membre : `salonia_malek`…) |
 | `AUTH_SECRET` | clé de signature des sessions NextAuth (`npx auth secret`) ; `SESSION_SECRET` reste accepté |
 | `DEMO_MODE` | `"true"` : comptes de démo sur /login et lien de réinitialisation affiché |
+| `GEMINI_API_KEY` | IA de l'équipe (performance, suggestion de praticien, prévision de charge) et autres IA. Vide : calcul sans IA |
 | `ANTHROPIC_API_KEY` | IA (assistant de configuration, chatbot). Vide : modes hors ligne |
 | `CRON_SECRET` | protège `/api/cron/reminders` (rappels automatiques) |
 
@@ -127,10 +128,20 @@ Périmètre réalisé (d'après le résumé du cahier des charges ; le texte int
 | F4.6 Vue personnelle du staff : planning et rendez-vous | `/dashboard/planning` (« Mon planning ») ; bouton « Planning » sur les cartes pour OWNER/MANAGER | Implémenté, lecture seule |
 
 **Pages et actions**
-- `/dashboard/equipe` : cartes du personnel (poste, compétences, centres, horaires personnalisés, absence en cours ou prochaine, sans motif).
-- Création d'un compte STAFF : prénom, nom, e-mail et/ou téléphone (au moins un), mot de passe temporaire saisi par le créateur
-  (règles de l'inscription : 8 caractères, une lettre, un chiffre, 72 octets UTF-8 au plus ; haché bcrypt, coût 12), poste, compétences,
-  au moins un centre. Le rôle est toujours `STAFF` et l'organisation celle du créateur ; toute autre valeur envoyée est ignorée.
+- `/dashboard/equipe` : une carte par membre (personnel **et gérants**), avec un badge de rôle d'accès (« Gérant » ou « Personnel »), le
+  rôle/poste, les compétences, les centres, les horaires personnalisés et l'absence en cours ou prochaine (sans motif). Un gérant n'est pas
+  un praticien : sa carte n'a ni Horaires, ni Absences, ni Planning.
+- Création d'un compte : prénom, nom, e-mail et/ou téléphone (au moins un), mot de passe temporaire saisi par le créateur
+  (règles de l'inscription : 8 caractères, une lettre, un chiffre, 72 octets UTF-8 au plus ; haché bcrypt, coût 12), **rôle prédéfini**,
+  compétences, au moins un centre. Les rôles (`lib/team/roles.ts`) : **Gérant(e) de centre** (crée un compte `MANAGER`), puis
+  Coiffeur / Coiffeuse, Esthéticienne, Maquilleuse, Prothésiste ongulaire, Masseuse, Réceptionniste (créent un compte `STAFF`). Le rôle
+  d'accès et le poste (`User.jobTitle`) sont **déduits par le serveur** de la clé du rôle choisi ; l'organisation est celle du créateur ;
+  toute autre valeur envoyée (rôle d'accès, poste libre, organisation) est ignorée. Il n'y a plus de poste en texte libre à la création.
+- Gérants (propriétaire seulement, `lib/team/service.ts`) : « Modifier » change le nom et les **centres d'affectation** (un ou plusieurs, au moins un,
+  de l'organisation ; sans changement réel : aucune écriture). « Désactiver » pose `User.deactivatedAt` : le compte ne peut plus se connecter
+  (mot de passe ou MetaMask), une session déjà ouverte est coupée à la requête suivante (`lib/dal.ts`), le gérant disparaît des listes. **Rien n'est
+  supprimé** (données et historique conservés). Un gérant ne peut ni se modifier ni se désactiver ; un compte inconnu, d'une autre organisation,
+  non gérant ou déjà désactivé reçoit toujours « Gérant introuvable. ». Événements d'audit : `STAFF_UPDATED`, `STAFF_DEACTIVATED`.
 - Horaires individuels (`User.workingHours`) : par jour, trois états. Jour **absent** = comme le centre ; `null` = repos ;
   `"09:00-17:00"` = plage (jamais au-delà de minuit). `workingHours: null` = tous les jours comme le centre.
 - Congés et absences (`StaffTimeOff`) : types congé (`LEAVE`) et absence exceptionnelle (`ABSENCE`), journée(s) complète(s) ou plage
@@ -144,8 +155,11 @@ Périmètre réalisé (d'après le résumé du cahier des charges ; le texte int
 
 | Action | OWNER | MANAGER | STAFF |
 |---|---|---|---|
-| Voir la liste de l'équipe | tous les employés de l'organisation | employés affectés à au moins un de ses centres | non |
-| Créer un compte STAFF | centres de l'organisation | uniquement ses centres | non |
+| Voir la liste de l'équipe | tous les membres (personnel et gérants) de l'organisation | membres affectés à au moins un de ses centres | non |
+| Créer un **gérant** (`MANAGER`) | oui, centres de l'organisation | **non** (refusé côté serveur, même si la requête est falsifiée) | non |
+| Créer du personnel (`STAFF`) | oui, centres de l'organisation | oui, **uniquement ses centres** | non |
+| **Affecter un gérant** à un ou plusieurs centres, modifier son nom | oui (bouton « Modifier » de sa carte, au moins un centre) | non | non |
+| **Désactiver un gérant** (confirmation demandée) | oui | non | non |
 | Horaires et absences (voir, créer, modifier, supprimer) | tout employé de l'organisation | **uniquement si tous les centres de l'employé sont dans son périmètre** (sinon : bouton désactivé et explication) | non |
 | Planning | tout employé | rendez-vous limités à ses centres, même pour un employé partagé | le sien seulement (`?staff=` ignoré) |
 
@@ -160,7 +174,9 @@ changement réel ne produit ni écriture ni événement. Le motif d'une absence 
 **Limites connues**
 - **Les horaires individuels, les absences et les compétences n'influencent pas les créneaux de réservation** (`lib/booking/` ne les lit pas).
   Un compte STAFF créé devient **immédiatement réservable** dans ses centres, avec les horaires du centre.
-- Pas de changement de mot de passe : l'employé garde le mot de passe temporaire. Il n'y a ni invitation par e-mail ni envoi automatique ;
+- Un gérant n'a pas d'horaires, d'absences ni de planning dans le module (les services ne ciblent que le rôle `STAFF`), et il n'est pas réservable
+  (`getPractitioners` ne lit que les `STAFF`). On ne peut pas encore changer le rôle d'un membre existant, ni modifier, désactiver ou réactiver le **personnel** (seuls les gérants le peuvent, par le propriétaire) ; il n'y a pas de réactivation d'un gérant désactivé (à faire en base).
+- Pas de changement de mot de passe : le membre garde le mot de passe temporaire. Il n'y a ni invitation par e-mail ni envoi automatique ;
   le lien « mot de passe oublié » n'est affiché qu'en développement ou avec `DEMO_MODE`.
 - Pas de désactivation ni de suppression d'un employé ; pas de modification du poste, des compétences ou des centres d'un employé existant.
 - Une absence dont le début dépasse 365 jours dans le passé ne peut plus changer de dates (type et motif restent modifiables ; suppression possible).
@@ -177,8 +193,31 @@ changement réel ne produit ni écriture ni événement. Le motif d'une absence 
   rendez-vous concernés, résumés sur les cartes et événements d'audit des absences ; planning (STAFF, OWNER, MANAGER, CLIENT, URL falsifiée,
   semaines voisines, état vide, français et arabe RTL) ; aucun motif ni donnée client sensible dans les pages ni dans l'audit.
 
-**Parcours à vérifier encore** : création **réussie** d'un compte STAFF dans l'interface (puis connexion avec ce compte) ; enregistrement **réussi**
-des horaires dans l'interface ; mise en page sur grand écran ; intégration aux créneaux (à concevoir avec ses propres tests de non-régression).
+- Gérants (navigateur, base isolée, novembre 2026) : affectation à deux centres avec persistance, refus sans centre, « Aucune modification. », désactivation avec
+  confirmation, connexion refusée ensuite, session ouverte coupée ; le gérant ne voit aucun bouton de gestion ; audit sans secret.
+- Rôles prédéfinis (navigateur, base MongoDB en mémoire isolée, novembre 2026) : le propriétaire crée un gérant et du personnel ; la liste affiche
+  le badge de rôle (français et arabe) ; le gérant créé se connecte, ne voit que ses centres, n'a pas « Gérant(e) de centre » dans la liste et
+  se voit refuser un gérant falsifié (« Seul le propriétaire peut créer un gérant. ») ; aucun mot de passe ni hash dans l'audit.
+
+**Données de démonstration de l'équipe** : `npm run db:seed:team` (simulation, n'écrit rien) puis `npm run db:seed:team -- --apply`. Script **additif et
+rejouable** (`scripts/seed-team.ts`), limité à l'organisation `salon-yasmine` : il complète seulement les champs vides (poste, compétences, horaires)
+des comptes de démo, ajoute 8 congés/absences (motif « … [démo] ») et ~120 rendez-vous à venir sur 13 jours (note « Démo équipe »), sans chevauchement,
+hors horaires du centre ni absences. Pour retirer l'ajout : `StaffTimeOff.deleteMany({ reason: /\[démo\]$/ })` et `Booking.deleteMany({ notes: "Démo équipe" })`.
+Contrairement à `db:seed`, il ne supprime rien.
+
+**IA de l'équipe (Gemini, `GEMINI_API_KEY` ; sans clé : calcul sans IA)** : l'IA propose, le propriétaire ou le gérant décide, rien n'est enregistré ni appliqué.
+- **Performance** (bouton sur la carte d'un employé) : indicateurs des 30 derniers jours, 6 critères pondérés notés sur 100 (fiabilité, assiduité, occupation,
+  chiffre d'affaires, fidélisation, polyvalence), note de l'IA bornée à ±25 points de la note calculée. `lib/team/performance*.ts`, `lib/ai/team-performance.ts`.
+- **Suggérer un praticien** (formulaire « Nouveau rendez-vous » du calendrier) : écarte les praticiens indisponibles sur le créneau, classe les autres (compétences,
+  charge des 7 jours, performance) ; « Choisir » remplit seulement le champ. `lib/team/assignment*.ts`, `lib/ai/team-assignment.ts`.
+- **Prévision de charge** (page Équipe) : 4 semaines par centre, calendrier coloré et pistes (horaires, congés, équipe, promotion). `lib/team/forecast*.ts`, `lib/ai/team-forecast.ts`.
+Seuls des agrégats anonymes sont envoyés à Gemini (jamais de nom, client, contact ni motif d'absence). Appel Gemini : délai 10 s, un seul nouvel essai.
+Vérifié en navigateur sur base isolée avec un vrai appel Gemini. Non faits : prise en compte des horaires individuels dans la capacité, packs dans la suggestion, arabe non testé à l'écran.
+
+**Parcours vérifiés (navigateur, base isolée, novembre 2026)** : création réussie d'un compte STAFF (rôle « Coiffeur / Coiffeuse », badge Personnel) ; enregistrement
+réussi des horaires (« Lundi · Repos », « Mardi · 09:00-17:00 ») ; congé créé, sans motif dans la liste ni le planning ; planning d'un employé ; affectation d'un gérant à un autre centre ;
+gérant limité à son centre (membres, rôles proposés, `?center=` interdit ignoré) ; désactivation d'un gérant puis connexion refusée ; événements d'audit affichés.
+**À vérifier encore** : mise en page sur grand écran ; intégration des horaires et absences aux créneaux (à concevoir avec ses propres tests de non-régression).
 
 ## Module 6 — Paiements, factures et pilotage financier
 

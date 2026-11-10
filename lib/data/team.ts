@@ -7,6 +7,7 @@ import { User } from "@/lib/models/core";
 import { StaffTimeOff } from "@/lib/models/team";
 import { readStoredHours, type StoredWorkingHours } from "@/lib/team/hours";
 import { canEditStaffHours, teamCenters } from "@/lib/team/scope";
+import { creatableTeamRoles } from "@/lib/team/roles";
 import { buildSkillSuggestions } from "@/lib/team/skills";
 import { summarizeTimeOff, type TimeOffSummary } from "@/lib/team/timeoff";
 
@@ -32,7 +33,11 @@ export type TeamMember = {
   id: string;
   firstName: string;
   lastName: string;
+  // Rôle d'accès : MANAGER (gérant) ou STAFF (personnel). Un gérant n'est pas praticien : ni horaires, ni absences, ni planning.
+  role: "MANAGER" | "STAFF";
   jobTitle: string | null;
+  // Le propriétaire peut modifier (nom, centres) ou désactiver un gérant. Jamais pour les autres membres, ni pour le gérant lui-même.
+  canManageAccount: boolean;
   skills: string[];
   // true si des horaires individuels sont définis (sinon : suit les horaires du centre).
   hasCustomHours: boolean;
@@ -51,11 +56,13 @@ export type TeamRoster = {
   centers: { id: string; name: string }[];
   selectedCenterId: string | null;
   members: TeamMember[];
+  // Rôles prédéfinis que l'utilisateur peut attribuer à la création (le gérant ne peut pas créer de gérant).
+  creatableRoles: { key: string; label: string }[];
 };
 
-const EMPTY_ROSTER: TeamRoster = { centers: [], selectedCenterId: null, members: [] };
+const EMPTY_ROSTER: TeamRoster = { centers: [], selectedCenterId: null, members: [], creatableRoles: [] };
 
-// Personnel (rôle STAFF) de l'organisation, limité aux centres que l'utilisateur gère :
+// Personnel (rôles STAFF et MANAGER) de l'organisation, limité aux centres que l'utilisateur gère :
 // tous pour le propriétaire, ses centres d'affectation pour un gérant. Les autres rôles ne voient rien.
 // Périmètre : voir teamCenters (lib/team/scope.ts). Un employé est listé s'il est affecté à au moins un centre visible.
 // « now » est injectable pour des tests déterministes (résumé des absences).
@@ -67,8 +74,8 @@ export async function getTeamRoster(user: CurrentUser, options: { centerId?: str
   const scope = (selectedCenterId ? [selectedCenterId] : centers.map((c) => c.id)).map((id) => new Types.ObjectId(id));
 
   await connectDB();
-  const staff = await User.find({ organizationId: user.organization.id, role: "STAFF", centerIds: { $in: scope } })
-    .select("firstName lastName jobTitle skills workingHours centerIds")
+  const staff = await User.find({ organizationId: user.organization.id, role: { $in: ["STAFF", "MANAGER"] }, deactivatedAt: null, centerIds: { $in: scope } })
+    .select("firstName lastName role jobTitle skills workingHours centerIds")
     .lean();
 
   // Absences non terminées des employés listés. Le champ « reason » est exclu de la lecture (select) : le résumé ne
@@ -95,16 +102,19 @@ export async function getTeamRoster(user: CurrentUser, options: { centerId?: str
         id: String(u._id),
         firstName: u.firstName,
         lastName: u.lastName,
+        role: u.role === "MANAGER" ? "MANAGER" : "STAFF",
         jobTitle: u.jobTitle?.trim() || null,
+        canManageAccount: user.role === "OWNER" && u.role === "MANAGER",
         skills: (u.skills ?? []).map(String).filter((s) => s.trim() !== ""),
         hasCustomHours: workingHours !== null,
         workingHours,
-        canEditHours: canEditStaffHours(user, allCenterIds),
+        // Horaires et absences : personnel seulement (les services ne ciblent que le rôle STAFF).
+        canEditHours: u.role === "STAFF" && canEditStaffHours(user, allCenterIds),
         timeOff: summarizeTimeOff(timeOffByUser.get(String(u._id)) ?? [], now),
         centers: allCenterIds.filter((id) => centerName.has(id)).map((id) => ({ id, name: centerName.get(id)! })),
       };
     })
     .sort((a, b) => a.firstName.localeCompare(b.firstName, "fr") || a.lastName.localeCompare(b.lastName, "fr"));
 
-  return { centers, selectedCenterId, members };
+  return { centers, selectedCenterId, members, creatableRoles: creatableTeamRoles(user.role) };
 }

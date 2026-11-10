@@ -1,8 +1,8 @@
-import { Error as MongooseError } from "mongoose";
+import { Error as MongooseError, Types } from "mongoose";
 import { connectDB } from "@/lib/db";
 import type { CurrentUser } from "@/lib/dal";
 import type { StockUnit } from "@/lib/enums";
-import { StockLevel, StockMovement, StockProduct } from "@/lib/models/stock";
+import { PurchaseOrder, ServiceRecipe, StockLevel, StockMovement, StockProduct, StockTransfer, Supplier } from "@/lib/models/stock";
 import { StockError, isDuplicateKey } from "./errors";
 import { commitMovement, openLevel, projectLevel, readTail, repairLevel, type LedgerKey, type RepairStatus } from "./ledger";
 import { isLowStock } from "./levels";
@@ -37,15 +37,23 @@ export const MSG_PRODUCT_ARCHIVED = "Ce produit est archivé.";
 export const MSG_NAME_TAKEN = "Un produit actif porte déjà ce nom.";
 export const MSG_NOT_ACTIVATED = "Ce produit n'est pas activé dans ce centre.";
 export const MSG_UNIT_LOCKED = "L'unité ne peut plus changer : des mouvements existent.";
+export const MSG_PRODUCT_HAS_HISTORY = "Ce produit a un historique (mouvements, commandes ou transferts) : archivez-le plutôt que de le supprimer.";
+export const MSG_PRODUCT_SUPPLIER_INVALID = "Fournisseur introuvable ou archivé.";
 export const MSG_INVALID = "Formulaire invalide.";
 
-type ProductView = { id: string; name: string; unit: StockUnit; active: boolean };
-const productView = (p: { _id: unknown; name: string; unit: string; active: boolean }): ProductView => ({
+type ProductView = { id: string; name: string; unit: StockUnit; active: boolean; supplierId: string | null };
+const productView = (p: { _id: unknown; name: string; unit: string; active: boolean; supplierId?: unknown }): ProductView => ({
   id: String(p._id),
   name: p.name,
   unit: p.unit as StockUnit,
   active: p.active,
+  supplierId: p.supplierId ? String(p.supplierId) : null,
 });
+
+// Le fournisseur habituel doit exister dans l'organisation et être actif (relu avec l'organisation de l'acteur, jamais cru sur la saisie).
+async function usableSupplier(organizationId: string, supplierId: string) {
+  return (await Supplier.exists({ _id: supplierId, organizationId, active: true })) !== null;
+}
 
 export function invalid(error: { flatten(): { fieldErrors: unknown } }): StockFailure {
   const errors = error.flatten().fieldErrors as Record<string, string[]>;
@@ -80,8 +88,10 @@ export function createProduct(actor: StockActor, input: unknown): Promise<StockR
     const parsed = CreateProductSchema.safeParse(input);
     if (!parsed.success) return invalid(parsed.error);
     await connectDB();
+    const supplierId = parsed.data.supplierId ?? undefined;
+    if (supplierId && !(await usableSupplier(organizationId, supplierId))) return { ok: false, errors: { supplierId: [MSG_PRODUCT_SUPPLIER_INVALID] } };
     try {
-      const product = await StockProduct.create({ organizationId, name: parsed.data.name, unit: parsed.data.unit });
+      const product = await StockProduct.create({ organizationId, name: parsed.data.name, unit: parsed.data.unit, supplierId });
       return { ok: true, product: productView(product) };
     } catch (error) {
       if (isDuplicateKey(error, "name")) return { ok: false, errors: { name: [MSG_NAME_TAKEN] } };
@@ -107,6 +117,10 @@ export function updateProduct(actor: StockActor, input: unknown): Promise<StockR
       product.unit = parsed.data.unit;
     }
     if (parsed.data.name) product.name = parsed.data.name;
+    if (parsed.data.supplierId !== undefined) {
+      if (parsed.data.supplierId && !(await usableSupplier(organizationId, parsed.data.supplierId))) return { ok: false, errors: { supplierId: [MSG_PRODUCT_SUPPLIER_INVALID] } };
+      product.supplierId = (parsed.data.supplierId ?? undefined) as typeof product.supplierId;
+    }
     try {
       await product.save();
     } catch (error) {
@@ -131,6 +145,30 @@ export function archiveProduct(actor: StockActor, input: unknown): Promise<Stock
       await product.save();
     }
     return { ok: true, product: productView(product) };
+  });
+}
+
+// Suppression définitive : seulement si le produit n'a laissé aucune trace dans le journal, les commandes d'achat ni les transferts
+// (sinon l'historique perdrait son sens : on archive). Les niveaux sans mouvement et les lignes de recette qui le visent sont retirés avec lui.
+// Contrôles puis écritures non atomiques : un mouvement ou une commande créé entre les deux serait orphelin (fenêtre étroite, documentée).
+export function deleteProduct(actor: StockActor, input: unknown): Promise<StockResult<{ productId: string }>> {
+  return guard(async () => {
+    const organizationId = requireProductDefinitionsAdmin(actor);
+    const parsed = ProductIdSchema.safeParse(input);
+    if (!parsed.success) return invalid(parsed.error);
+    await connectDB();
+    const product = await loadProduct(organizationId, parsed.data.productId);
+    if (!product) return { ok: false, message: MSG_PRODUCT_NOT_FOUND };
+    const productId = product._id;
+    const used =
+      (await StockMovement.exists({ organizationId, productId })) ||
+      (await PurchaseOrder.exists({ organizationId, "lines.productId": productId })) ||
+      (await StockTransfer.exists({ organizationId, productId }));
+    if (used) return { ok: false, message: MSG_PRODUCT_HAS_HISTORY };
+    await StockLevel.deleteMany({ organizationId, productId });
+    await ServiceRecipe.deleteMany({ organizationId, productId });
+    await StockProduct.deleteOne({ _id: productId, organizationId });
+    return { ok: true, productId: String(productId) };
   });
 }
 
@@ -270,6 +308,8 @@ export type StockLevelRow = {
   projectedQuantity: number;
   lowStock: boolean;
   needsRepair: boolean;
+  // Date du dernier mouvement du journal de (produit, centre) ; null si aucun.
+  lastMovementAt: string | null;
 };
 
 // Niveaux visibles par l'acteur (tous ses centres, ou un seul si demandé et autorisé). Détecte les projections en retard
@@ -281,6 +321,12 @@ export function listStockLevels(actor: StockActor, requestedCenterId?: unknown):
     const levels = await StockLevel.find(stockFilter(scope)).lean();
     const products = await StockProduct.find({ organizationId: scope.organizationId, _id: { $in: levels.map((l) => l.productId) } }).lean();
     const byId = new Map(products.map((p) => [String(p._id), p]));
+    // Dernier mouvement de chaque niveau affiché, en une seule requête groupée (lecture seule, même organisation et mêmes centres).
+    const lasts = await StockMovement.aggregate<{ _id: { p: Types.ObjectId; c: Types.ObjectId }; at: Date }>([
+      { $match: { organizationId: new Types.ObjectId(scope.organizationId), centerId: { $in: scope.centerIds.map((c) => new Types.ObjectId(c)) }, productId: { $in: levels.map((l) => l.productId) } } },
+      { $group: { _id: { p: "$productId", c: "$centerId" }, at: { $max: "$createdAt" } } },
+    ]);
+    const lastAt = new Map(lasts.map((x) => [`${x._id.p}:${x._id.c}`, x.at]));
 
     const rows = await Promise.all(
       levels.map(async (level): Promise<StockLevelRow | null> => {
@@ -298,6 +344,7 @@ export function listStockLevels(actor: StockActor, requestedCenterId?: unknown):
           projectedQuantity: level.quantity,
           lowStock: isLowStock(tail.balanceAfter, level.alertThreshold),
           needsRepair: level.seq !== tail.seq || level.quantity !== tail.balanceAfter,
+          lastMovementAt: lastAt.get(`${level.productId}:${level.centerId}`)?.toISOString() ?? null,
         };
       }),
     );

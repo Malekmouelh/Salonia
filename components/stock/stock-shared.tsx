@@ -4,14 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useTransition, type ReactNode } from "react";
 import { useI18n } from "@/components/i18n/i18n-provider";
-import { Toast } from "@/components/ui/modal";
+import { Modal, Toast } from "@/components/ui/modal";
 import type { Role, StockUnit } from "@/lib/enums";
 import { STOCK_UNIT_LABELS } from "@/lib/stock/labels";
 
 // Éléments d'interface partagés du Module 5 (matériel et stock) : sous-navigation, formats, pastilles et gestion des envois.
 // Les classes de champ viennent de components/calendar/status et finance-ui (mêmes styles que les autres modules).
 
-export type ProductItem = { id: string; name: string; unit: StockUnit; active: boolean };
+export type ProductItem = { id: string; name: string; unit: StockUnit; active: boolean; supplierId: string | null };
 export type CenterItem = { id: string; name: string };
 export type Errors = Record<string, string[] | undefined>;
 export type ActionOutcome = { ok: true; message?: string } | { ok: false; message?: string; errors?: Record<string, string[]> };
@@ -21,10 +21,11 @@ const TABS = [
   { href: "/dashboard/stock/materiel", label: "Matériel", roles: ["OWNER", "MANAGER"] },
   { href: "/dashboard/stock/fournisseurs", label: "Fournisseurs", roles: ["OWNER", "MANAGER"] },
   { href: "/dashboard/stock/commandes", label: "Commandes", roles: ["OWNER", "MANAGER"] },
-  { href: "/dashboard/stock/recettes", label: "Recettes", roles: ["OWNER"] },
+  { href: "/dashboard/stock/recettes", label: "Recettes", roles: ["OWNER", "MANAGER"] },
+  { href: "/dashboard/stock/analyses", label: "Analyses IA", roles: ["OWNER", "MANAGER"] },
 ] as const;
 
-// Sous-navigation du module (même présentation que FinanceTabs). « Recettes » : propriétaire seulement.
+// Sous-navigation du module (même présentation que FinanceTabs). « Recettes » : propriétaire et gérant.
 export function StockTabs({ role }: { role: Role }) {
   const { t } = useI18n();
   const pathname = usePathname();
@@ -133,6 +134,39 @@ export function useFeedback() {
     </Toast>
   ) : null;
   return { show: (text: string, tone: "success" | "error" = "success") => setToast({ tone, text }), node };
+}
+
+// Confirmation avant une action (archiver, supprimer, passer, annuler…) : même fenêtre modale que le reste de l'application, à la place
+// de la boîte du navigateur. Les textes sont déjà traduits par l'appelant (t(…) au point d'appel). « Annuler » reste réservé au libellé
+// de l'action elle-même (ex. annuler une commande) : le bouton de retour s'appelle « Retour ».
+type ConfirmOptions = { title: string; message: string; confirmLabel: string; danger?: boolean };
+
+export function useConfirm() {
+  const { t } = useI18n();
+  const [state, setState] = useState<(ConfirmOptions & { onConfirm: () => void }) | null>(null);
+  const close = () => setState(null);
+  const node = state ? (
+    <Modal open onClose={close} title={state.title}>
+      <p className="text-sm text-white/70">{state.message}</p>
+      <div className="mt-6 flex flex-wrap justify-end gap-3">
+        <button type="button" onClick={close} className="rounded-2xl border border-white/10 px-5 py-2.5 text-sm text-white/80 transition hover:bg-white/5">
+          {t("Retour")}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const run = state.onConfirm;
+            close();
+            run();
+          }}
+          className={state.danger ? "rounded-2xl bg-red-500/80 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-red-500" : "btn-shine rounded-2xl px-5 py-2.5 text-sm font-semibold text-plum-950"}
+        >
+          {state.confirmLabel}
+        </button>
+      </div>
+    </Modal>
+  ) : null;
+  return { ask: (options: ConfirmOptions, onConfirm: () => void) => setState({ ...options, onConfirm }), node };
 }
 
 export function EmptyState({ children }: { children: ReactNode }) {

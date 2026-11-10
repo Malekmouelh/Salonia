@@ -49,13 +49,14 @@ export function orderStatusAuditDetail(p: { orderId: string; centerId: string; s
 }
 
 // Recettes de service : identifiants et quantités entières uniquement.
-export function recipeAuditDetail(p: { serviceId: string; productId: string; quantity: number; previousQuantity?: number }) {
+export function recipeAuditDetail(p: { centerId: string; serviceId: string; productId: string; quantity: number; previousQuantity?: number }) {
   const qty = p.previousQuantity === undefined ? `${p.quantity}` : `${p.previousQuantity}->${p.quantity}`;
-  return `service:${p.serviceId} product:${p.productId} qty:${qty}`;
+  return `center:${p.centerId} service:${p.serviceId} product:${p.productId} qty:${qty}`;
 }
 
 // Transferts entre centres : identifiants et quantité entière uniquement (jamais le nom du produit ni de l'équipement).
-export function transferAuditDetail(p: { transferId: string; fromCenterId: string; toCenterId: string; productId?: string; equipmentId?: string; quantity?: number }) {
+// `extra` : mots-clés fixes (statut, décision, transfert annulé) ; jamais un motif saisi par l'utilisateur.
+export function transferAuditDetail(p: { transferId: string; fromCenterId: string; toCenterId: string; productId?: string; equipmentId?: string; quantity?: number; extra?: string }) {
   const subject = p.productId ? `product:${p.productId} qty:${p.quantity ?? 0}` : `equipment:${p.equipmentId}`;
-  return `transfer:${p.transferId} from:${p.fromCenterId} to:${p.toCenterId} ${subject}`;
+  return `transfer:${p.transferId} from:${p.fromCenterId} to:${p.toCenterId} ${subject}${p.extra ? ` ${p.extra}` : ""}`;
 }

@@ -55,9 +55,8 @@ export function AdminVitrineView({ data }: { data: AdminData }) {
   const [toast, setToast] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const salonUrl = typeof window !== "undefined"
-    ? `${window.location.origin}/salon/${data.organization.slug}`
-    : `https://salonia.tn/salon/${data.organization.slug}`;
+  const salonSlug = data.organization.slug || data.organization.id;
+  const salonUrl = `https://salonia-tn.vercel.app/salon/${salonSlug}`;
 
   // Modération d'un avis
   const handleModerateReview = (reviewId: string, status: "APPROVED" | "HIDDEN") => {
@@ -132,13 +131,15 @@ export function AdminVitrineView({ data }: { data: AdminData }) {
             <span>{t("QR Code du salon")}</span>
           </button>
 
-          <Link
-            href={`/salon/${data.organization.slug}`}
-            className="flex items-center gap-1.5 rounded-xl bg-rose-gold px-4 py-2 text-xs font-bold text-plum-950 shadow-md transition hover:brightness-105"
+          <a
+            href={`/salon/${data.organization.slug || data.organization.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 rounded-xl bg-rose-gold px-4 py-2 text-xs font-bold text-plum-950 shadow-md transition hover:brightness-105 cursor-pointer"
           >
             <span>{t("Voir la vitrine")}</span>
             <ArrowRightIcon width={14} height={14} className="rtl:-scale-x-100" />
-          </Link>
+          </a>
         </div>
       </div>
 
@@ -215,7 +216,7 @@ export function AdminVitrineView({ data }: { data: AdminData }) {
         <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 sm:p-8 backdrop-blur">
           <InvitationStudio
             salonName={data.organization.name}
-            salonSlug={data.organization.slug}
+            salonSlug={salonSlug}
             primaryColor={data.theme.primaryColor}
             secondaryColor={data.theme.secondaryColor}
           />
@@ -433,12 +434,14 @@ export function AdminVitrineView({ data }: { data: AdminData }) {
                 >
                   {t("Afficher QR Code")}
                 </button>
-                <Link
-                  href={`/salon/${data.organization.slug}`}
-                  className="rounded-xl bg-rose-gold px-4 py-2.5 text-xs font-bold text-plum-950 transition hover:brightness-105"
+                <a
+                  href={`/salon/${data.organization.slug || data.organization.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-xl bg-rose-gold px-4 py-2.5 text-xs font-bold text-plum-950 transition hover:brightness-105 cursor-pointer"
                 >
                   {t("Ouvrir")}
-                </Link>
+                </a>
               </div>
             </div>
 
@@ -466,12 +469,14 @@ export function AdminVitrineView({ data }: { data: AdminData }) {
                     >
                       {t("QR Code du centre")}
                     </button>
-                    <Link
-                      href={`/salon/${data.organization.slug}/${c.id}`}
-                      className="rounded-xl border border-white/15 bg-white/10 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-white/20"
+                    <a
+                      href={`/salon/${data.organization.slug || data.organization.id}/${c.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-xl border border-white/15 bg-white/10 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-white/20 cursor-pointer"
                     >
                       {t("Ouvrir")}
-                    </Link>
+                    </a>
                   </div>
                 </div>
               );
@@ -618,6 +623,7 @@ export function AdminVitrineView({ data }: { data: AdminData }) {
         onClose={() => setShareSalon(false)}
         title={`${t("QR Code")} : ${data.organization.name}`}
         url={salonUrl}
+        salonSlug={salonSlug}
         salonName={data.organization.name}
       />
 
@@ -628,6 +634,8 @@ export function AdminVitrineView({ data }: { data: AdminData }) {
           onClose={() => setShareCenter(null)}
           title={`${t("QR Code")} : ${shareCenter.name}`}
           url={`${salonUrl}/${shareCenter.id}`}
+          salonSlug={salonSlug}
+          centerId={shareCenter.id}
           salonName={data.organization.name}
           centerName={shareCenter.name}
         />

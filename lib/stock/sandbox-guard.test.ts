@@ -76,13 +76,14 @@ describe("intégration de l'interface du stock", () => {
     assert.match(page, /user\.role === "OWNER" \|\| user\.role === "MANAGER"/);
   });
 
-  it("chaque page du stock exige un rôle côté serveur ; les recettes sont réservées au propriétaire ; aucune page n'accède aux collections", () => {
+  it("chaque page du stock exige un rôle côté serveur ; les recettes sont ouvertes au propriétaire et au gérant ; aucune page n'accède aux collections", () => {
     const pages: [string, string][] = [
       ["app/dashboard/stock/page.tsx", 'requireRole("OWNER", "MANAGER")'],
       ["app/dashboard/stock/materiel/page.tsx", 'requireRole("OWNER", "MANAGER")'],
       ["app/dashboard/stock/fournisseurs/page.tsx", 'requireRole("OWNER", "MANAGER")'],
       ["app/dashboard/stock/commandes/page.tsx", 'requireRole("OWNER", "MANAGER")'],
-      ["app/dashboard/stock/recettes/page.tsx", 'requireRole("OWNER")'],
+      ["app/dashboard/stock/recettes/page.tsx", 'requireRole("OWNER", "MANAGER")'],
+      ["app/dashboard/stock/analyses/page.tsx", 'requireRole("OWNER", "MANAGER")'],
     ];
     for (const [path, guard] of pages) {
       const source = read(path);
@@ -90,14 +91,13 @@ describe("intégration de l'interface du stock", () => {
       assert.match(source, /<Suspense/);
       assert.doesNotMatch(source, /@\/lib\/models\//);
     }
-    assert.doesNotMatch(read("app/dashboard/stock/recettes/page.tsx"), /"MANAGER"/);
   });
 
   it("les composants client n'importent jamais de modèle ni de code serveur : seulement des actions, des étiquettes et des types", () => {
-    for (const file of ["stock-hub", "stock-modals", "stock-shared", "materiel-manager", "suppliers-manager", "orders-manager", "recipes-manager", "transfer-modals"]) {
+    for (const file of ["stock-hub", "stock-modals", "stock-shared", "materiel-manager", "suppliers-manager", "orders-manager", "recipes-manager", "transfer-modals", "forecast-panel", "replenish-modal", "product-sheet", "insights-panel"]) {
       const source = read(`components/stock/${file}.tsx`);
       assert.doesNotMatch(source, /@\/lib\/models\/|server-only|@\/lib\/db|@\/lib\/dal/, file);
-      for (const m of source.matchAll(/^import (?!type)[^;]*from "(@\/lib\/stock\/[^"]+)"/gm)) assert.match(m[1], /labels$/, `${file} : import non-type de ${m[1]}`);
+      for (const m of source.matchAll(/^import (?!type)[^;]*from "(@\/lib\/stock\/[^"]+)"/gm)) assert.match(m[1], /(labels|recipe-warning|contact|level-filter)$/, `${file} : import non-type de ${m[1]}`); // fichiers purs seulement (libellés, alerte de recette, liens de contact)
     }
   });
 

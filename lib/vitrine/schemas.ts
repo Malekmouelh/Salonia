@@ -2,14 +2,19 @@ import { z } from "zod";
 
 // F1.1 — Personnalisation du design
 export const FONT_OPTIONS = [
-  { value: "playfair", label: "Playfair Display", description: "Élégant, Haute Couture & Raffiné", cssFont: "'Playfair Display', var(--font-playfair), Georgia, serif" },
-  { value: "cormorant", label: "Cormorant Garamond", description: "Luxe Classique & Majestueux", cssFont: "'Cormorant Garamond', var(--font-cormorant), Georgia, serif" },
-  { value: "outfit", label: "Outfit", description: "Moderne, Tendance & Géométrique", cssFont: "'Outfit', var(--font-outfit), system-ui, sans-serif" },
-  { value: "inter", label: "Inter", description: "Minimaliste, Épuré & Haute Lisibilité", cssFont: "'Inter', var(--font-inter), system-ui, sans-serif" },
-  { value: "tajawal", label: "Tajawal", description: "Harmonie Bilingue Parfaite (FR / AR)", cssFont: "'Tajawal', var(--font-tajawal), system-ui, sans-serif" },
+  { value: "playfair", label: "Playfair Display", description: "Élégant, Haute Couture & Raffiné", category: "Serif", cssFont: "'Playfair Display', var(--font-playfair), Georgia, serif" },
+  { value: "cormorant", label: "Cormorant Garamond", description: "Luxe Classique & Majestueux", category: "Serif", cssFont: "'Cormorant Garamond', var(--font-cormorant), Georgia, serif" },
+  { value: "outfit", label: "Outfit", description: "Moderne, Tendance & Géométrique", category: "Sans-Serif", cssFont: "'Outfit', var(--font-outfit), system-ui, sans-serif" },
+  { value: "inter", label: "Inter", description: "Minimaliste, Épuré & Haute Lisibilité", category: "Sans-Serif", cssFont: "'Inter', var(--font-inter), system-ui, sans-serif" },
+  { value: "roboto", label: "Roboto", description: "Clair, Universel & Professionnel", category: "Sans-Serif", cssFont: "'Roboto', system-ui, sans-serif" },
+  { value: "poppins", label: "Poppins", description: "Chaleureux, Arrondi & Vivant", category: "Sans-Serif", cssFont: "'Poppins', system-ui, sans-serif" },
+  { value: "montserrat", label: "Montserrat", description: "Urbain, Titrage Chic & Impactant", category: "Sans-Serif", cssFont: "'Montserrat', system-ui, sans-serif" },
+  { value: "cairo", label: "Cairo", description: "Contemporain & Expressif (FR / AR)", category: "Arabe / Bilingue", cssFont: "'Cairo', var(--font-cairo), system-ui, sans-serif" },
+  { value: "tajawal", label: "Tajawal", description: "Harmonie Bilingue Parfaite (FR / AR)", category: "Arabe / Bilingue", cssFont: "'Tajawal', var(--font-tajawal), system-ui, sans-serif" },
+  { value: "amiri", label: "Amiri", description: "Calligraphie Orientale Noble (FR / AR)", category: "Arabe / Bilingue", cssFont: "'Amiri', var(--font-amiri), Georgia, serif" },
 ] as const;
 
-export type VitrineFont = (typeof FONT_OPTIONS)[number]["value"];
+export type VitrineFont = (typeof FONT_OPTIONS)[number]["value"] | (string & {});
 
 export const COLOR_PRESETS = [
   { name: "Rose Gold & Prune (Signature)", primary: "#e8b4a0", secondary: "#2a0f25", accent: "#f3d9cf" },
@@ -25,7 +30,8 @@ export const ThemeConfigSchema = z.object({
   primaryColor: z.string().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Code couleur invalide").default("#e8b4a0"),
   secondaryColor: z.string().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Code couleur invalide").default("#2a0f25"),
   accentColor: z.string().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Code couleur invalide").default("#f3d9cf"),
-  fontFamily: z.enum(["playfair", "cormorant", "outfit", "inter", "tajawal"]).default("playfair"),
+  fontFamily: z.string().default("playfair"),
+  customFontUrl: z.string().optional().default(""),
   colorMode: z.enum(["dark", "light", "auto"]).default("dark"),
   tagline: z.string().max(140, "Le slogan ne doit pas dépasser 140 caractères").default(""),
   description: z.string().max(1000, "La description ne doit pas dépasser 1000 caractères").default(""),
@@ -44,6 +50,7 @@ export const DEFAULT_THEME_CONFIG: ThemeConfig = {
   secondaryColor: "#2a0f25",
   accentColor: "#f3d9cf",
   fontFamily: "playfair",
+  customFontUrl: "",
   colorMode: "dark",
   tagline: "L'art de sublimer votre beauté au quotidien",
   description: "Découvrez nos prestations d'exception, nos équipes passionnées et prenez rendez-vous en quelques clics.",
