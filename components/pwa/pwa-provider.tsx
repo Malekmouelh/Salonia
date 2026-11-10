@@ -54,8 +54,10 @@ export function PwaProvider() {
       )}
 
       {installEvent && !dismissed && (
-        <div className="fixed inset-x-0 bottom-0 z-[60] flex justify-center p-4 animate-fade-up">
-          <div className="glass flex w-full max-w-md items-center gap-4 rounded-3xl p-4">
+        // pointer-events-none : la bande transparente pleine largeur ne doit pas bloquer les clics
+        // (ex. la bulle de l'assistant financier en bas à droite) ; seule la carte reste cliquable.
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex justify-center p-4 animate-fade-up">
+          <div className="glass pointer-events-auto flex w-full max-w-md items-center gap-4 rounded-3xl p-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/icons/192" alt="" width={48} height={48} className="rounded-2xl" />
             <div className="flex-1">
