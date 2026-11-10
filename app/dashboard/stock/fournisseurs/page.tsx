@@ -10,7 +10,7 @@ import { getSuppliersPageData } from "@/lib/data/stock";
 
 export const metadata: Metadata = { title: "Fournisseurs" };
 
-// F5.5 — Fournisseurs : le propriétaire les gère, le gérant les consulte (règle du service, pas seulement de l'interface).
+// F5.5 — Fournisseurs : le propriétaire et le gérant les gèrent (règle du service, pas seulement de l'interface).
 export default function SuppliersPage() {
   return (
     <main className="relative min-h-dvh overflow-hidden">

@@ -31,8 +31,8 @@ import { MSG_EQUIPMENT_ARCHIVED, MSG_EQUIPMENT_NOT_FOUND, MSG_MAINTENANCE_FUTURE
 import { MSG_ORDER_NOT_CANCELLABLE, MSG_ORDER_NOT_EDITABLE, MSG_ORDER_NOT_FOUND, MSG_ORDER_NOT_ORDERABLE, MSG_ORDER_RECEIVING } from "./purchase-orders";
 import { MSG_ORDER_INCONSISTENT, MSG_ORDER_NOT_RECEIVABLE, MSG_RECEIPT_INCOMPLETE, MSG_RECEIPT_NOT_PROJECTED, MSG_UNIT_CHANGED } from "./receipts";
 import { MSG_STOCK_CENTER_NOT_FOUND, MSG_STOCK_FORBIDDEN } from "./scope";
-import { MSG_SUPPLIER_ARCHIVED, MSG_SUPPLIER_NAME_TAKEN, MSG_SUPPLIER_NOT_FOUND } from "./suppliers";
-import { MSG_INVALID, MSG_NAME_TAKEN, MSG_NOT_ACTIVATED, MSG_PRODUCT_ARCHIVED, MSG_PRODUCT_NOT_FOUND, MSG_UNIT_LOCKED } from "./service";
+import { MSG_SUPPLIER_ARCHIVED, MSG_SUPPLIER_HAS_ORDERS, MSG_SUPPLIER_NAME_TAKEN, MSG_SUPPLIER_NOT_FOUND } from "./suppliers";
+import { MSG_INVALID, MSG_NAME_TAKEN, MSG_NOT_ACTIVATED, MSG_PRODUCT_ARCHIVED, MSG_PRODUCT_HAS_HISTORY, MSG_PRODUCT_NOT_FOUND, MSG_UNIT_LOCKED } from "./service";
 
 const root = process.cwd();
 const missing = (texts: Iterable<string>) => [...new Set(texts)].filter((t) => !(t in AR));
@@ -64,7 +64,7 @@ function schemaMessages() {
 
 describe("traductions arabes du Module 5", () => {
   it("les messages du service, du périmètre et du registre sont traduits", () => {
-    const messages = [MSG_STOCK_FORBIDDEN, MSG_STOCK_CENTER_NOT_FOUND, MSG_PRODUCT_NOT_FOUND, MSG_PRODUCT_ARCHIVED, MSG_NAME_TAKEN, MSG_NOT_ACTIVATED, MSG_UNIT_LOCKED, MSG_INVALID, MSG_INSUFFICIENT_STOCK, MSG_LEDGER_BUSY];
+    const messages = [MSG_STOCK_FORBIDDEN, MSG_STOCK_CENTER_NOT_FOUND, MSG_PRODUCT_NOT_FOUND, MSG_PRODUCT_ARCHIVED, MSG_NAME_TAKEN, MSG_NOT_ACTIVATED, MSG_UNIT_LOCKED, MSG_INVALID, MSG_INSUFFICIENT_STOCK, MSG_LEDGER_BUSY, MSG_PRODUCT_HAS_HISTORY];
     assert.deepEqual(missing(messages), []);
   });
 
@@ -89,7 +89,7 @@ describe("traductions arabes du Module 5", () => {
     assert.ok(texts.length >= 10);
     const securityLog = readFileSync(join(root, "components/dashboard/security-log.tsx"), "utf8");
     const labels = [...securityLog.matchAll(/STOCK_\w+: \{ label: "([^"]+)"/g)].map((m) => m[1]);
-    assert.equal(labels.length, 10); // 6 (produits, niveaux, mouvements, réception) + 3 (recettes) + 1 (transfert de produit, F5.6)
+    assert.equal(labels.length, 15); // 7 (produits dont suppression, niveaux, mouvements, réception) + 3 (recettes) + 1 (transfert de produit, F5.6) + 4 (réception, retour, demande, réponse)
     assert.deepEqual(missing([...texts, ...labels]), []);
   });
 
@@ -102,7 +102,7 @@ describe("traductions arabes : matériel, maintenance, fournisseurs, commandes (
   it("les messages des services sont traduits", () => {
     const messages = [
       MSG_EQUIPMENT_NOT_FOUND, MSG_EQUIPMENT_ARCHIVED, MSG_MAINTENANCE_FUTURE,
-      MSG_SUPPLIER_NOT_FOUND, MSG_SUPPLIER_ARCHIVED, MSG_SUPPLIER_NAME_TAKEN,
+      MSG_SUPPLIER_NOT_FOUND, MSG_SUPPLIER_ARCHIVED, MSG_SUPPLIER_NAME_TAKEN, MSG_SUPPLIER_HAS_ORDERS,
       MSG_ORDER_NOT_FOUND, MSG_ORDER_NOT_EDITABLE, MSG_ORDER_NOT_ORDERABLE, MSG_ORDER_NOT_CANCELLABLE, MSG_ORDER_RECEIVING,
       MSG_ORDER_INCONSISTENT, MSG_ORDER_NOT_RECEIVABLE, MSG_RECEIPT_INCOMPLETE, MSG_RECEIPT_NOT_PROJECTED, MSG_UNIT_CHANGED,
     ];
@@ -149,7 +149,7 @@ describe("traductions arabes : actions du matériel et de la maintenance", () =>
   it("les libellés du journal de sécurité (équipement, maintenance) et les messages de réponse sont traduits", () => {
     const securityLog = readFileSync(join(root, "components/dashboard/security-log.tsx"), "utf8");
     const labels = [...securityLog.matchAll(/(?:EQUIPMENT|MAINTENANCE)_\w+: \{ label: "([^"]+)"/g)].map((m) => m[1]);
-    assert.equal(labels.length, 6); // + EQUIPMENT_TRANSFERRED (F5.6)
+    assert.equal(labels.length, 6); // + EQUIPMENT_TRANSFERRED (F5.6) ; les nouveaux types de transfert sont couverts par le test suivant
     const code = readFileSync(join(root, "app/actions/stock.ts"), "utf8").replace(/^\s*\/\/.*$/gm, "");
     const messages = [...code.matchAll(/message: "([^"]+)"/g)].map((m) => m[1]);
     for (const expected of ["Équipement créé.", "Équipement modifié.", "Équipement archivé.", "Maintenance programmée.", "Intervention enregistrée.", "Aucune modification."]) {
@@ -163,7 +163,7 @@ describe("traductions arabes : actions des fournisseurs et des commandes d'achat
   it("les libellés du journal de sécurité et les messages de réponse sont traduits", () => {
     const securityLog = readFileSync(join(root, "components/dashboard/security-log.tsx"), "utf8");
     const labels = [...securityLog.matchAll(/(?:SUPPLIER|PURCHASE_ORDER)_\w+: \{ label: "([^"]+)"/g)].map((m) => m[1]);
-    assert.equal(labels.length, 7);
+    assert.equal(labels.length, 8); // + SUPPLIER_DELETED
     const code = readFileSync(join(root, "app/actions/stock.ts"), "utf8").replace(/^\s*\/\/.*$/gm, "");
     const messages = [...code.matchAll(/message: "([^"]+)"/g)].map((m) => m[1]);
     for (const expected of ["Fournisseur créé.", "Fournisseur modifié.", "Fournisseur archivé.", "Commande créée.", "Brouillon modifié.", "Commande passée.", "Commande annulée.", "Aucune modification."]) {
@@ -191,7 +191,7 @@ describe("traductions arabes : recettes de service", () => {
     const bad: unknown[] = [undefined, null, "", 0, -1, 1.5, "5", {}, { $ne: "" }, [], true, 2_000_000_000, "x".repeat(40)];
     for (const v of bad) {
       for (const schema of [RecipeLineSchema, RecipeLineKeySchema, RecipeServiceSchema]) {
-        const r = schema.safeParse({ serviceId: v, productId: v, quantityPerService: v });
+        const r = schema.safeParse({ centerId: v, serviceId: v, productId: v, quantityPerService: v });
         if (!r.success) messages.push(...r.error.issues.map((i) => i.message));
       }
     }

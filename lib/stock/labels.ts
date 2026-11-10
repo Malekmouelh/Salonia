@@ -1,5 +1,5 @@
 // Libellés du Module 5 (français = clé de traduction arabe). Utilisables côté client.
-import type { EquipmentStatus, PurchaseOrderStatus, StockMovementKind, StockTransferKind, StockTransferStatus, StockUnit } from "@/lib/enums";
+import type { EquipmentStatus, PurchaseOrderStatus, StockMovementKind, StockReceiptStatus, StockTransferKind, StockTransferStatus, StockUnit, SupplierCategory } from "@/lib/enums";
 
 export const EQUIPMENT_STATUS_LABELS: Record<EquipmentStatus, string> = {
   IN_SERVICE: "En service",
@@ -33,6 +33,14 @@ export const STOCK_TRANSFER_STATUS_LABELS: Record<StockTransferStatus, string> =
   PENDING: "En cours",
   COMPLETED: "Terminé",
   CANCELLED: "Annulé",
+  REQUESTED: "Demandé",
+  REFUSED: "Refusé",
+};
+
+export const STOCK_RECEIPT_STATUS_LABELS: Record<StockReceiptStatus, string> = {
+  AWAITING: "À confirmer",
+  CONFIRMED: "Reçu conforme",
+  DISCREPANCY: "Écart signalé",
 };
 
 export const PURCHASE_ORDER_STATUS_LABELS: Record<PurchaseOrderStatus, string> = {
@@ -40,6 +48,14 @@ export const PURCHASE_ORDER_STATUS_LABELS: Record<PurchaseOrderStatus, string> =
   ORDERED: "Commandée",
   RECEIVED: "Reçue",
   CANCELLED: "Annulée",
+};
+
+export const SUPPLIER_CATEGORY_LABELS: Record<SupplierCategory, string> = {
+  PRODUCTS: "Produits capillaires",
+  COSMETICS: "Soins et cosmétiques",
+  EQUIPMENT: "Matériel et équipement",
+  CONSUMABLES: "Hygiène et consommables",
+  OTHER: "Autre",
 };
 
 export const MAINTENANCE_STATE_LABELS = {

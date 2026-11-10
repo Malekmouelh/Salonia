@@ -272,6 +272,14 @@ export function HistoryModal({ target, onClose }: { target: Pick<LevelTarget, "p
                   {m.note && ` · ${m.note}`}
                   {m.purchaseOrderId && ` · ${t("Commande d'achat")}`}
                   {m.bookingId && ` · ${t("Rendez-vous")}`}
+                  {m.booking && (
+                    <>
+                      {" : "}
+                      <bdi>{m.booking.services.map((x) => (x.count > 1 ? `${x.name} ×${x.count}` : x.name)).join(", ")}</bdi>
+                      {" · "}
+                      <DateText value={m.booking.start} withTime />
+                    </>
+                  )}
                 </p>
                 {m.kind === "CONSUMPTION" && m.requested !== null && m.shortfall !== null && m.shortfall > 0 && (
                   <p className="mt-1 text-xs text-amber-200">
@@ -304,11 +312,12 @@ export function HistoryModal({ target, onClose }: { target: Pick<LevelTarget, "p
 }
 
 // ── Fiche produit partagée (propriétaire) : création et modification ──
-export function ProductModal({ product, onClose, onDone }: { product: ProductItem | null; onClose: () => void; onDone: Done }) {
+export function ProductModal({ product, suppliers, onClose, onDone }: { product: ProductItem | null; suppliers: { id: string; name: string }[]; onClose: () => void; onDone: Done }) {
   const { t } = useI18n();
   const uid = useId();
   const [name, setName] = useState(product?.name ?? "");
   const [unit, setUnit] = useState<StockUnit>(product?.unit ?? "ML");
+  const [supplierId, setSupplierId] = useState(product?.supplierId ?? "");
   const { pending, errors, message, submit } = useSubmit((m) => {
     onDone(m);
     onClose();
@@ -319,7 +328,7 @@ export function ProductModal({ product, onClose, onDone }: { product: ProductIte
         className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
-          submit(() => (product ? updateStockProductAction({ productId: product.id, name, unit }) : createStockProductAction({ name, unit })));
+          submit(() => (product ? updateStockProductAction({ productId: product.id, name, unit, supplierId }) : createStockProductAction({ name, unit, supplierId })));
         }}
       >
         <div>
@@ -337,7 +346,21 @@ export function ProductModal({ product, onClose, onDone }: { product: ProductIte
             ))}
           </select>
           <p className="mt-1 text-xs text-white/40">{t("Les quantités sont des nombres entiers dans l'unité de base. 1 litre = 1000 ml. L'unité ne peut plus changer dès qu'un mouvement existe.")}</p>
+          <p className="mt-2 text-xs text-amber-200/80">{t("Ici, seulement des produits consommables (shampoing, kératine, gants…). Le matériel durable (sèche-cheveux, fauteuil…) s'ajoute dans l'onglet Matériel.")}</p>
           <FieldError errors={errors} name="unit" />
+        </div>
+        <div>
+          <label className={labelClass} htmlFor={`${uid}-supplier`}>{t("Fournisseur habituel")} ({t("facultatif")})</label>
+          <select id={`${uid}-supplier`} value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className={`${selectClass} w-full`}>
+            <option value="">{t("Aucun")}</option>
+            {suppliers.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-white/40">{t("Son délai de livraison sert à calculer quand commander ce produit.")}</p>
+          <FieldError errors={errors} name="supplierId" />
         </div>
         {message && <Alert>{t(message)}</Alert>}
         <SubmitButton pending={pending}>{t("Enregistrer")}</SubmitButton>

@@ -106,7 +106,50 @@ export async function commitReceipt(input: ReceiptCommit): Promise<{ movement: {
   throw new StockError(MSG_LEDGER_BUSY);
 }
 
-export type TransferOutCommit = LedgerKey & { transferId: string; requested: number; createdBy?: string };
+export type ConsumptionCommit = LedgerKey & { bookingId: string; requested: number; createdBy?: string };
+
+// Consommation d'un produit pour un rendez-vous terminé : UN mouvement CONSUMPTION par (rendez-vous, produit), jamais deux. La sortie est
+// PLAFONNÉE au solde lu en fin de journal (jamais de stock négatif) et le manquant est enregistré sur le mouvement (requested = -delta + shortfall).
+// Un solde nul crée quand même le mouvement (delta 0) : le manquant reste visible. Idempotent : si le mouvement existe déjà (nouvel appel,
+// appel simultané, second chemin de clôture), il est renvoyé tel quel (created: false) et rien n'est retiré une seconde fois.
+// Étapes 1 à 3 de D6 seulement : ne projette pas (voir projectLevel).
+export async function commitConsumption(input: ConsumptionCommit): Promise<{ movement: { seq: number; balanceAfter: number; delta: number }; shortfall: number; created: boolean }> {
+  const key: LedgerKey = { organizationId: input.organizationId, productId: input.productId, centerId: input.centerId };
+  const consumptionFilter = { ...key, kind: "CONSUMPTION" as const, bookingId: input.bookingId };
+  for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
+    const existing = await StockMovement.findOne(consumptionFilter).select("seq balanceAfter delta shortfall").lean();
+    if (existing) return { movement: { seq: existing.seq, balanceAfter: existing.balanceAfter, delta: existing.delta }, shortfall: existing.shortfall ?? 0, created: false };
+    const tail = await readTail(key);
+    const applied = Math.min(input.requested, tail.balanceAfter);
+    try {
+      const saved = await new StockMovement({
+        ...key,
+        kind: "CONSUMPTION",
+        seq: tail.seq + 1,
+        delta: 0 - applied, // jamais -0 quand rien ne peut être sorti
+        balanceAfter: tail.balanceAfter - applied,
+        requested: input.requested,
+        shortfall: input.requested - applied,
+        bookingId: input.bookingId,
+        createdBy: input.createdBy,
+      }).save();
+      return { movement: { seq: saved.seq, balanceAfter: saved.balanceAfter, delta: saved.delta }, shortfall: saved.shortfall ?? 0, created: true };
+    } catch (error) {
+      // Une autre requête a enregistré cette consommation : on la relit au tour suivant. Si elle existe mais dans un autre centre
+      // (état incohérent), on s'arrête plutôt que de boucler.
+      if (isDuplicateKey(error, "bookingId")) {
+        const here = await StockMovement.exists(consumptionFilter);
+        if (!here) throw new StockError(MSG_LEDGER_BUSY);
+        continue;
+      }
+      if (!isDuplicateKey(error, "seq")) throw error;
+      await pause(attempt); // un autre écrivain a pris ce rang : on relit la fin du journal et on recalcule
+    }
+  }
+  throw new StockError(MSG_LEDGER_BUSY);
+}
+
+export type TransferOutCommit =LedgerKey & { transferId: string; requested: number; createdBy?: string };
 export type TransferMovement = { seq: number; balanceAfter: number; delta: number };
 
 // Sortie d'un transfert au centre source : UN mouvement TRANSFER_OUT par (transfert, produit), jamais deux. La quantité est PLAFONNÉE au
@@ -127,7 +170,7 @@ export async function commitTransferOut(input: TransferOutCommit): Promise<{ mov
         ...key,
         kind: "TRANSFER_OUT",
         seq: tail.seq + 1,
-        delta: -applied,
+        delta: 0 - applied, // jamais -0 quand rien ne peut être sorti
         balanceAfter: tail.balanceAfter - applied,
         transferId: input.transferId,
         createdBy: input.createdBy,

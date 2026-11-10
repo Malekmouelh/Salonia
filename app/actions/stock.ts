@@ -32,6 +32,7 @@ import {
   activateProductInCenter,
   archiveProduct,
   createProduct,
+  deleteProduct,
   listProducts,
   listStockLevels,
   recordStockMovement,
@@ -57,8 +58,10 @@ import {
 import { listStockMovements, type MovementHistory } from "@/lib/stock/movements";
 import { receivePurchaseOrder, type ReceiveResult } from "@/lib/stock/receipts";
 import { addRecipeLine, listServiceRecipe, removeRecipeLine, updateRecipeLine, type RecipeLineView } from "@/lib/stock/recipes";
-import { archiveSupplier, createSupplier, listSuppliers, updateSupplier, type SupplierView } from "@/lib/stock/suppliers";
-import { listTransfers, resumeTransfer, transferEquipment, transferProduct, type TransferHistory, type TransferResult } from "@/lib/stock/transfers";
+import { explainStockForecast, type Explanation } from "@/lib/stock/forecast-explain";
+import { analyzeStockConsumption, type ConsumptionAnalysis } from "@/lib/stock/insights-ai";
+import { archiveSupplier, createSupplier, deleteSupplier, listSuppliers, updateSupplier, type SupplierView } from "@/lib/stock/suppliers";
+import { answerTransferRequest, confirmTransferReceipt, listTransfers, requestTransfer, resumeTransfer, reverseTransfer, transferEquipment, transferProduct, type TransferHistory, type TransferResult } from "@/lib/stock/transfers";
 
 // Module 5 — Server Actions du stock. Les droits, le périmètre des centres et la validation sont dans lib/stock/service.ts
 // (frontière de sécurité métier) ; l'action authentifie, appelle le service, journalise et renvoie un résultat.
@@ -83,7 +86,7 @@ async function run<T>(call: () => Promise<StockResult<T>>): Promise<StockResult<
 }
 
 type WithMessage<T> = StockResult<T> & { message?: string };
-type Product = { id: string; name: string; unit: "PIECE" | "ML" | "G"; active: boolean };
+type Product = { id: string; name: string; unit: "PIECE" | "ML" | "G"; active: boolean; supplierId: string | null };
 type LevelView = { productId: string; centerId: string; alertThreshold: number; quantity: number; seq: number };
 
 // ── Définitions de produits : propriétaire seulement ──
@@ -128,6 +131,21 @@ export async function archiveStockProductAction(raw: unknown): Promise<WithMessa
   revalidatePath("/dashboard/stock/recettes");
   revalidatePath("/dashboard/stock/commandes");
   return { ...result, message: "Produit archivé." };
+}
+
+// Suppression définitive : refusée par le service si le produit a un historique (mouvements, commandes, transferts) ; on propose alors l'archivage.
+export async function deleteStockProductAction(raw: unknown): Promise<WithMessage<{ productId: string }>> {
+  const user = await requireRole("OWNER");
+  if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
+
+  const result = await run(() => deleteProduct(user, raw));
+  if (!result.ok) return result;
+
+  await logEvent("STOCK_PRODUCT_DELETED", { userId: user.id, organizationId: user.organization.id, detail: productAuditDetail(result.productId) });
+  revalidatePath("/dashboard/stock");
+  revalidatePath("/dashboard/stock/recettes");
+  revalidatePath("/dashboard/stock/commandes");
+  return { ...result, message: "Produit supprimé." };
 }
 
 // Lecture des définitions (propriétaire et gérant : un gérant choisit le produit à activer dans son centre). Ni audit ni invalidation.
@@ -351,12 +369,12 @@ export async function listMaintenanceHistoryAction(raw: unknown): Promise<StockR
   return run(() => listMaintenanceHistory(user, raw));
 }
 
-// ── Fournisseurs (F5.5) : écriture réservée au propriétaire, lecture pour le gérant ──
+// ── Fournisseurs (F5.5) : propriétaire et gérant ──
 // Droits et validation : voir lib/stock/suppliers.ts. Le détail d'audit ne contient que l'identifiant du fournisseur : jamais son nom,
 // son téléphone ni son e-mail. Sans changement réel, ni écriture ni audit.
 
 export async function createSupplierAction(raw: unknown): Promise<WithMessage<{ supplier: SupplierView }>> {
-  const user = await requireRole("OWNER");
+  const user = await requireRole("OWNER", "MANAGER");
   if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
 
   const result = await run(() => createSupplier(user, raw));
@@ -369,7 +387,7 @@ export async function createSupplierAction(raw: unknown): Promise<WithMessage<{ 
 }
 
 export async function updateSupplierAction(raw: unknown): Promise<WithMessage<{ supplier: SupplierView; changed: boolean }>> {
-  const user = await requireRole("OWNER");
+  const user = await requireRole("OWNER", "MANAGER");
   if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
 
   const result = await run(() => updateSupplier(user, raw));
@@ -384,7 +402,7 @@ export async function updateSupplierAction(raw: unknown): Promise<WithMessage<{ 
 
 // Les commandes existantes gardent la référence et le nom du fournisseur archivé. Rejoué sur un fournisseur déjà archivé : succès sans audit.
 export async function archiveSupplierAction(raw: unknown): Promise<WithMessage<{ supplier: SupplierView; changed: boolean }>> {
-  const user = await requireRole("OWNER");
+  const user = await requireRole("OWNER", "MANAGER");
   if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
 
   const result = await run(() => archiveSupplier(user, raw));
@@ -395,6 +413,20 @@ export async function archiveSupplierAction(raw: unknown): Promise<WithMessage<{
   revalidatePath("/dashboard/stock/fournisseurs");
   revalidatePath("/dashboard/stock/commandes");
   return { ...result, message: "Fournisseur archivé." };
+}
+
+// Suppression définitive : refusée par le service dès qu'une commande référence le fournisseur (on propose alors l'archivage).
+export async function deleteSupplierAction(raw: unknown): Promise<WithMessage<{ supplierId: string }>> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
+
+  const result = await run(() => deleteSupplier(user, raw));
+  if (!result.ok) return result;
+
+  await logEvent("SUPPLIER_DELETED", { userId: user.id, organizationId: user.organization.id, detail: supplierAuditDetail({ supplierId: result.supplierId }) });
+  revalidatePath("/dashboard/stock/fournisseurs");
+  revalidatePath("/dashboard/stock/commandes");
+  return { ...result, message: "Fournisseur supprimé." };
 }
 
 // Lecture : propriétaire et gérant (un gérant choisit un fournisseur pour une commande de son centre). includeArchived n'est vrai que pour `true`.
@@ -420,6 +452,7 @@ export async function createPurchaseOrderAction(raw: unknown): Promise<WithMessa
     organizationId: user.organization.id,
     detail: orderAuditDetail({ orderId: result.order.id, centerId: result.order.centerId, supplierId: result.order.supplierId, lines: result.order.lines.length }),
   });
+  revalidatePath("/dashboard/stock");
   revalidatePath("/dashboard/stock/commandes");
   return { ...result, message: "Commande créée." };
 }
@@ -437,6 +470,7 @@ export async function updateDraftPurchaseOrderAction(raw: unknown): Promise<With
     organizationId: user.organization.id,
     detail: orderAuditDetail({ orderId: result.order.id, centerId: result.order.centerId, supplierId: result.order.supplierId, lines: result.order.lines.length }),
   });
+  revalidatePath("/dashboard/stock");
   revalidatePath("/dashboard/stock/commandes");
   return { ...result, message: "Brouillon modifié." };
 }
@@ -453,6 +487,7 @@ export async function placePurchaseOrderAction(raw: unknown): Promise<WithMessag
     organizationId: user.organization.id,
     detail: orderStatusAuditDetail({ orderId: result.order.id, centerId: result.order.centerId, status: result.order.status }),
   });
+  revalidatePath("/dashboard/stock");
   revalidatePath("/dashboard/stock/commandes");
   return { ...result, message: "Commande passée." };
 }
@@ -470,6 +505,7 @@ export async function cancelPurchaseOrderAction(raw: unknown): Promise<WithMessa
     organizationId: user.organization.id,
     detail: orderStatusAuditDetail({ orderId: result.order.id, centerId: result.order.centerId, status: result.order.status }),
   });
+  revalidatePath("/dashboard/stock");
   revalidatePath("/dashboard/stock/commandes");
   return { ...result, message: "Commande annulée." };
 }
@@ -487,13 +523,13 @@ export async function listPurchaseOrdersAction(centerId?: unknown, filter?: unkn
   return run(() => listPurchaseOrders(user, centerId, filter));
 }
 
-// ── Recettes de consommation par service (F5.3) : propriétaire seulement ──
+// ── Recettes de consommation par service (F5.3) : propriétaire et gérant (ses centres) ──
 // Configuration seule : aucune de ces actions ne crée de mouvement de stock ni ne touche un rendez-vous. Droits, existence du service
 // dans l'organisation, produit actif et quantité : voir lib/stock/recipes.ts. Le détail d'audit ne contient que des identifiants et des
 // quantités ; sans changement réel, ni écriture ni audit.
 
 export async function addRecipeLineAction(raw: unknown): Promise<WithMessage<{ line: RecipeLineView }>> {
-  const user = await requireRole("OWNER");
+  const user = await requireRole("OWNER", "MANAGER");
   if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
 
   const result = await run(() => addRecipeLine(user, raw));
@@ -502,14 +538,14 @@ export async function addRecipeLineAction(raw: unknown): Promise<WithMessage<{ l
   await logEvent("STOCK_RECIPE_ADDED", {
     userId: user.id,
     organizationId: user.organization.id,
-    detail: recipeAuditDetail({ serviceId: result.line.serviceId, productId: result.line.productId, quantity: result.line.quantityPerService }),
+    detail: recipeAuditDetail({ centerId: result.line.centerId, serviceId: result.line.serviceId, productId: result.line.productId, quantity: result.line.quantityPerService }),
   });
   revalidatePath("/dashboard/stock/recettes");
   return { ...result, message: "Ligne de recette ajoutée." };
 }
 
 export async function updateRecipeLineAction(raw: unknown): Promise<WithMessage<{ line: RecipeLineView; previousQuantity: number; changed: boolean }>> {
-  const user = await requireRole("OWNER");
+  const user = await requireRole("OWNER", "MANAGER");
   if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
 
   const result = await run(() => updateRecipeLine(user, raw));
@@ -519,14 +555,14 @@ export async function updateRecipeLineAction(raw: unknown): Promise<WithMessage<
   await logEvent("STOCK_RECIPE_UPDATED", {
     userId: user.id,
     organizationId: user.organization.id,
-    detail: recipeAuditDetail({ serviceId: result.line.serviceId, productId: result.line.productId, quantity: result.line.quantityPerService, previousQuantity: result.previousQuantity }),
+    detail: recipeAuditDetail({ centerId: result.line.centerId, serviceId: result.line.serviceId, productId: result.line.productId, quantity: result.line.quantityPerService, previousQuantity: result.previousQuantity }),
   });
   revalidatePath("/dashboard/stock/recettes");
   return { ...result, message: "Ligne de recette modifiée." };
 }
 
-export async function removeRecipeLineAction(raw: unknown): Promise<WithMessage<{ serviceId: string; productId: string; removedQuantity: number }>> {
-  const user = await requireRole("OWNER");
+export async function removeRecipeLineAction(raw: unknown): Promise<WithMessage<{ centerId: string; serviceId: string; productId: string; removedQuantity: number }>> {
+  const user = await requireRole("OWNER", "MANAGER");
   if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
 
   const result = await run(() => removeRecipeLine(user, raw));
@@ -535,15 +571,15 @@ export async function removeRecipeLineAction(raw: unknown): Promise<WithMessage<
   await logEvent("STOCK_RECIPE_REMOVED", {
     userId: user.id,
     organizationId: user.organization.id,
-    detail: recipeAuditDetail({ serviceId: result.serviceId, productId: result.productId, quantity: result.removedQuantity }),
+    detail: recipeAuditDetail({ centerId: result.centerId, serviceId: result.serviceId, productId: result.productId, quantity: result.removedQuantity }),
   });
   revalidatePath("/dashboard/stock/recettes");
   return { ...result, message: "Ligne de recette supprimée." };
 }
 
-// Lecture : propriétaire seulement (comme l'écriture). Ni audit ni invalidation.
-export async function listServiceRecipeAction(raw: unknown): Promise<StockResult<{ serviceId: string; serviceName: string; lines: RecipeLineView[] }>> {
-  const user = await requireRole("OWNER");
+// Lecture : propriétaire et gérant (comme l'écriture). Ni audit ni invalidation.
+export async function listServiceRecipeAction(raw: unknown): Promise<StockResult<{ centerId: string; serviceId: string; serviceName: string; lines: RecipeLineView[] }>> {
+  const user = await requireRole("OWNER", "MANAGER");
   if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
   return run(() => listServiceRecipe(user, raw));
 }
@@ -616,9 +652,109 @@ export async function resumeStockTransferAction(raw: unknown): Promise<WithMessa
   return { ...result, message: "Transfert repris et terminé." };
 }
 
+// ── Réception, retour, demande (suite de F5.6) ──
+// Droits et règles : lib/stock/transfers.ts. Un événement d'audit n'est écrit que si l'appel a fait avancer les choses ; les motifs saisis ne
+// sont JAMAIS repris dans l'audit (identifiants, quantités et mots-clés fixes seulement).
+const transferDetail = (t: TransferResult["transfer"], quantity: number | null, extra?: string) =>
+  transferAuditDetail({ transferId: t.id, fromCenterId: t.fromCenterId, toCenterId: t.toCenterId, productId: t.productId ?? undefined, equipmentId: t.equipmentId ?? undefined, quantity: quantity ?? 0, extra });
+
+export async function confirmStockTransferReceiptAction(raw: unknown): Promise<WithMessage<TransferResult>> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
+
+  const result = await run(() => confirmTransferReceipt(user, raw));
+  if (!result.ok) return result;
+  if (!result.advanced) return { ...result, message: "Cette réception avait déjà été confirmée." };
+
+  const t = result.transfer;
+  await logEvent("STOCK_TRANSFER_RECEIVED", {
+    userId: user.id,
+    organizationId: user.organization.id,
+    detail: transferDetail(t, t.transferredQuantity, `status:${t.receiptStatus}${t.receivedQuantity !== null ? ` received:${t.receivedQuantity}` : ""}`),
+  });
+  revalidatePath("/dashboard/stock");
+  revalidatePath("/dashboard/stock/commandes");
+  revalidatePath("/dashboard/stock/materiel");
+  const gap = t.receiptStatus === "DISCREPANCY";
+  const text = gap ? "Réception enregistrée avec un écart : le propriétaire et le centre d'origine le voient dans l'historique." : "Réception confirmée.";
+  return { ...result, message: text };
+}
+
+export async function reverseStockTransferAction(raw: unknown): Promise<WithMessage<TransferResult>> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
+
+  const result = await run(() => reverseTransfer(user, raw));
+  if (!result.ok) return result;
+  if (!result.advanced) return { ...result, message: "Ce transfert avait déjà été annulé." };
+
+  const t = result.transfer;
+  await logEvent("STOCK_TRANSFER_REVERSED", { userId: user.id, organizationId: user.organization.id, detail: transferDetail(t, result.transferred, `reverses:${t.reversesTransferId ?? ""}`) });
+  revalidatePath("/dashboard/stock");
+  revalidatePath("/dashboard/stock/commandes");
+  revalidatePath("/dashboard/stock/materiel");
+  return { ...result, message: result.capped ? "Transfert annulé : seule la quantité encore disponible a pu être retournée." : "Transfert annulé : le stock est revenu au centre d'origine." };
+}
+
+export async function requestStockTransferAction(raw: unknown): Promise<WithMessage<TransferResult>> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
+
+  const result = await run(() => requestTransfer(user, raw));
+  if (!result.ok) return result;
+  if (!result.advanced) return { ...result, message: "Cette demande avait déjà été envoyée." };
+
+  await logEvent("STOCK_TRANSFER_REQUESTED", { userId: user.id, organizationId: user.organization.id, detail: transferDetail(result.transfer, result.transfer.requestedQuantity) });
+  revalidatePath("/dashboard/stock");
+  revalidatePath("/dashboard/stock/commandes");
+  revalidatePath("/dashboard/stock/materiel");
+  return { ...result, message: "Demande envoyée au centre concerné." };
+}
+
+export async function answerStockTransferRequestAction(raw: unknown): Promise<WithMessage<TransferResult>> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
+
+  const result = await run(() => answerTransferRequest(user, raw));
+  if (!result.ok) return result;
+  if (!result.advanced) return { ...result, message: "Cette demande avait déjà été traitée." };
+
+  const t = result.transfer;
+  const decision = t.status === "COMPLETED" ? "ACCEPT" : t.status === "REFUSED" ? "REFUSE" : "WITHDRAW";
+  await logEvent("STOCK_TRANSFER_ANSWERED", { userId: user.id, organizationId: user.organization.id, detail: transferDetail(t, result.transferred, `decision:${decision}`) });
+  revalidatePath("/dashboard/stock");
+  revalidatePath("/dashboard/stock/commandes");
+  revalidatePath("/dashboard/stock/materiel");
+  const messages = {
+    ACCEPT: result.capped ? "Demande acceptée : la quantité a été plafonnée au stock disponible." : "Demande acceptée : le transfert est effectué.",
+    REFUSE: "Demande refusée.",
+    WITHDRAW: "Demande retirée.",
+  };
+  return { ...result, message: messages[decision] };
+}
+
 // Historique des transferts des centres autorisés, paginé par curseur. Lecture seule : ni audit ni invalidation.
 export async function listStockTransfersAction(raw?: unknown): Promise<StockResult<TransferHistory>> {
   const user = await requireRole("OWNER", "MANAGER");
   if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
   return run(() => listTransfers(user, raw));
+}
+
+// ── Prévision de consommation (IA) : propriétaire, et gérant dans ses centres ──
+// Lecture seule : ni audit ni invalidation. Les chiffres sont recalculés par le serveur (jamais ceux du client) ; la clé Gemini n'est lue que
+// côté serveur (lib/stock/forecast-explain.ts) et ne sort jamais. Sans clé ou en cas d'échec : phrase de secours construite sans IA.
+export async function explainStockForecastAction(raw: unknown): Promise<StockResult<Explanation>> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
+  return run(() => explainStockForecast(user, raw));
+}
+
+// ── Analyse IA de la consommation entre centres : propriétaire, et gérant dans ses centres ──
+// Lecture seule : ni audit ni invalidation. Le périmètre (organisation, centres) et tous les chiffres sont recalculés par le serveur (jamais
+// ceux du client) ; Gemini ne reçoit que des constats calculés, la clé n'est lue que côté serveur et ne sort jamais. Sans clé, en cas d'échec
+// ou de réponse refusée : synthèse construite sans IA (lib/stock/insights-ai.ts).
+export async function analyzeStockConsumptionAction(raw: unknown): Promise<StockResult<ConsumptionAnalysis>> {
+  const user = await requireRole("OWNER", "MANAGER");
+  if (!user.organization) return { ok: false, message: MSG_NO_ORGANIZATION };
+  return run(() => analyzeStockConsumption(user, raw));
 }

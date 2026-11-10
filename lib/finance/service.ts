@@ -26,6 +26,7 @@ import type { PaymentKind, PaymentMethod } from "@/lib/enums";
 import { Booking, Customer } from "@/lib/models/booking";
 import { CashClosing, FinanceCounter, Invoice, Payment } from "@/lib/models/finance";
 import { dayKey, toLocal } from "@/lib/booking/time";
+import { consumeStockForBooking } from "@/lib/stock/consumption";
 import { getFinanceSettings } from "./settings";
 import { balanceDue, computeTotals, formatDocNumber, netPaid, roundTnd, sumTnd, type LineInput } from "./money";
 
@@ -312,6 +313,12 @@ export async function checkoutBooking(user: CurrentUser, bookingId: string, tend
     if ((booking.status === "CONFIRMED" || booking.status === "PENDING") && booking.start <= new Date()) {
       booking.status = "COMPLETED";
       await booking.save();
+      // Module 5 : même consommation de stock que depuis le calendrier (idempotente : une seule sortie par rendez-vous et par produit).
+      try {
+        await consumeStockForBooking(String(booking._id), user.id);
+      } catch (error) {
+        console.error("Consommation de stock en échec :", error);
+      }
     }
   }
   return { payments: created, invoice };

@@ -81,9 +81,10 @@ describe("détails d'audit des fournisseurs et des commandes d'achat", () => {
 describe("détail d'audit des recettes de service", () => {
   const service = "665f1c2e8b3a4d0012ab34d3";
   const product = "665f1c2e8b3a4d0012ab34d4";
+  const center = "665f1c2e8b3a4d0012ab34d5";
   it("décrit des identifiants et des quantités, avec l'ancienne quantité en cas de modification", () => {
-    assert.equal(recipeAuditDetail({ serviceId: service, productId: product, quantity: 30 }), `service:${service} product:${product} qty:30`);
-    assert.equal(recipeAuditDetail({ serviceId: service, productId: product, quantity: 55, previousQuantity: 40 }), `service:${service} product:${product} qty:40->55`);
+    assert.equal(recipeAuditDetail({ centerId: center, serviceId: service, productId: product, quantity: 30 }), `center:${center} service:${service} product:${product} qty:30`);
+    assert.equal(recipeAuditDetail({ centerId: center, serviceId: service, productId: product, quantity: 55, previousQuantity: 40 }), `center:${center} service:${service} product:${product} qty:40->55`);
   });
   it("ne prend aucune saisie libre", () => {
     assert.equal(recipeAuditDetail.length, 1);

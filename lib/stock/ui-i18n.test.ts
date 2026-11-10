@@ -88,3 +88,25 @@ describe("interface du stock : traductions arabes", () => {
     assert.deepEqual(offenders, []);
   });
 });
+
+describe("analyses IA : libellés des tables", () => {
+  it("chaque libellé français des tables de la page et du panneau d'analyse (hors t() direct) a sa traduction arabe", () => {
+    const missing: string[] = [];
+    for (const file of ["components/stock/insights-panel.tsx", "app/dashboard/stock/analyses/page.tsx"]) {
+      const source = readFileSync(join(root, file), "utf8");
+      // Chaînes qui ressemblent à du texte français affiché : majuscule initiale et au moins une minuscule (hors identifiants, classes, chemins).
+      for (const m of source.matchAll(/"((?:[^"\\\n]|\\.)*)"/g)) {
+        const text = m[1].replace(/\\"/g, '"');
+        if (/^[A-ZÀ-Ý]/.test(text) && /[a-zà-ÿ]/.test(text) && !(text in AR)) missing.push(`${file} : « ${text} »`);
+      }
+    }
+    assert.deepEqual(missing, []);
+  });
+});
+
+describe("interface du stock : fenêtres de confirmation", () => {
+  it("aucune boîte du navigateur (confirm, alert, prompt) : les confirmations passent par la modale de l'application (useConfirm)", () => {
+    const offenders = FILES.filter((f) => /(?<![\w.])(?:window\.)?(?:confirm|alert|prompt)\(/.test(readFileSync(join(root, f), "utf8")));
+    assert.deepEqual(offenders, []);
+  });
+});

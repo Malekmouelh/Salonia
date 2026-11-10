@@ -75,14 +75,15 @@ describe("StockLevel", () => {
 });
 
 describe("ServiceRecipe", () => {
-  const base = { organizationId: org, serviceId: id(), productId: product };
+  const base = { organizationId: org, centerId: center, serviceId: id(), productId: product };
   it("exige une quantité entière strictement positive", async () => {
     assert.deepEqual(await invalidPaths(new ServiceRecipe({ ...base, quantityPerService: 30 })), []);
     for (const q of [0, -5, 1.5]) assert.deepEqual(await invalidPaths(new ServiceRecipe({ ...base, quantityPerService: q })), ["quantityPerService"]);
   });
-  it("définit l'unicité (service, produit)", async () => {
+  it("définit l'unicité (centre, service, produit) et exige un centre", async () => {
+    assert.deepEqual(await invalidPaths(new ServiceRecipe({ organizationId: org, serviceId: id(), productId: product, quantityPerService: 30 })), ["centerId"]);
     const found = ServiceRecipe.schema.indexes().find(([f]) => "serviceId" in f && "productId" in f);
-    assert.deepEqual(found?.[0], { serviceId: 1, productId: 1 });
+    assert.deepEqual(found?.[0], { centerId: 1, serviceId: 1, productId: 1 });
     assert.equal(found?.[1]?.unique, true);
   });
 });
