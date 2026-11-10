@@ -88,9 +88,9 @@ export function Toast({ tone, children, onDone }: { tone: "success" | "error"; c
     return () => clearTimeout(id);
   }, [onDone]);
   return createPortal(
-    <div role="status" className="fixed inset-x-0 bottom-6 z-[80] flex justify-center px-4 animate-fade-up">
+    <div role="status" className="pointer-events-none fixed inset-x-0 bottom-6 z-[80] flex justify-center px-4 animate-fade-up">
       <div
-        className={`max-w-md rounded-2xl border px-5 py-3 text-sm shadow-2xl backdrop-blur ${
+        className={`pointer-events-auto max-w-md rounded-2xl border px-5 py-3 text-sm shadow-2xl backdrop-blur ${
           tone === "success" ? "border-emerald-400/30 bg-emerald-950/90 text-emerald-100" : "border-red-400/30 bg-red-950/90 text-red-100"
         }`}
       >
