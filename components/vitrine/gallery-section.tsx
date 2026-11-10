@@ -8,8 +8,10 @@ import type { PublicRealizationItem } from "@/lib/data/vitrine";
 
 export function GallerySection({
   realizations,
+  isLight = false,
 }: {
   realizations: PublicRealizationItem[];
+  isLight?: boolean;
 }) {
   const { t } = useI18n();
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
@@ -40,10 +42,14 @@ export function GallerySection({
               key={cat}
               type="button"
               onClick={() => setSelectedCategory(cat)}
-              className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${
+              className={`rounded-full px-4 py-1.5 text-xs font-medium transition cursor-pointer ${
                 selectedCategory === cat
-                  ? "bg-rose-gold text-plum-950 font-semibold shadow-md"
-                  : "border border-white/10 bg-white/5 text-white/70 hover:border-white/20 hover:text-white"
+                  ? isLight
+                    ? "bg-slate-900 text-white font-semibold shadow-md"
+                    : "bg-rose-gold text-plum-950 font-semibold shadow-md"
+                  : isLight
+                    ? "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300"
+                    : "border border-white/10 bg-white/5 text-white/70 hover:border-white/20 hover:text-white"
               }`}
             >
               {cat === "ALL" ? t("Toutes les réalisations") : cat}
@@ -58,7 +64,11 @@ export function GallerySection({
           <div
             key={item.id}
             onClick={() => setActivePhoto(item)}
-            className="group relative aspect-[3/4] cursor-pointer overflow-hidden rounded-2xl border border-white/10 bg-white/5 shadow-md transition duration-300 hover:scale-[1.02] hover:border-rose-gold/50 hover:shadow-xl"
+            className={`group relative aspect-[3/4] cursor-pointer overflow-hidden rounded-2xl border shadow-md transition duration-300 hover:scale-[1.02] hover:shadow-xl ${
+              isLight
+                ? "border-slate-200 bg-slate-100"
+                : "border-white/10 bg-white/5 hover:border-rose-gold/50"
+            }`}
           >
             <img
               src={item.photo}

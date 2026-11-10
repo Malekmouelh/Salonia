@@ -64,7 +64,12 @@ export async function getPublicSalonShowcase(slug: string): Promise<PublicSalonS
   cacheTag(`salon:${slug}`);
 
   await connectDB();
-  const org = await Organization.findOne({ slug }).lean();
+  const decodedSlug = decodeURIComponent(slug);
+  const org = await Organization.findOne(
+    Types.ObjectId.isValid(slug)
+      ? { $or: [{ slug }, { slug: decodedSlug }, { _id: new Types.ObjectId(slug) }] }
+      : { $or: [{ slug }, { slug: decodedSlug }, { slug: slug.toLowerCase() }] },
+  ).lean();
   if (!org) return null;
 
   const organizationId = String(org._id);
@@ -115,7 +120,7 @@ export async function getPublicSalonShowcase(slug: string): Promise<PublicSalonS
 
   return {
     id: organizationId,
-    slug: org.slug,
+    slug: org.slug || organizationId,
     name: org.name,
     theme,
     features,

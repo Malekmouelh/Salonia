@@ -15,8 +15,11 @@ export const metadata: Metadata = {
 // Next.js 16 : la session et les données sont lues à la requête, donc dans un <Suspense>.
 export default function DashboardVitrinePage() {
   return (
-    <main className="relative min-h-dvh overflow-x-clip bg-plum-950 pb-16">
-      <Aurora />
+    <main className="relative min-h-dvh bg-plum-950 pb-16">
+      {/* Aurora isolée dans un conteneur overflow-clip pour ne pas casser le sticky */}
+      <div className="pointer-events-none absolute inset-0 overflow-x-clip" aria-hidden="true">
+        <Aurora />
+      </div>
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6">
         <Suspense fallback={<OfflineFallback><div className="mt-24 h-96 animate-pulse rounded-[2rem] bg-white/5" /></OfflineFallback>}>
           <Vitrine />
@@ -31,6 +34,7 @@ async function Vitrine() {
   if (!user.organization) {
     redirect("/dashboard");
   }
+
 
   const data = await getAdminVitrineData(user.organization.id);
 

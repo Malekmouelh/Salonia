@@ -39,6 +39,7 @@ export function ReviewsSection({
   slug,
   centers,
   selectedCenterId,
+  isLight = false,
 }: {
   reviews: PublicReviewItem[];
   stats: { average: number; count: number };
@@ -46,6 +47,7 @@ export function ReviewsSection({
   slug: string;
   centers?: PublicShowcaseCenter[];
   selectedCenterId?: string | null;
+  isLight?: boolean;
 }) {
   const { t } = useI18n();
   const [modalOpen, setModalOpen] = useState(false);
@@ -55,10 +57,26 @@ export function ReviewsSection({
   return (
     <section className="space-y-8">
       {/* En-tête des avis avec statistiques */}
-      <div className="flex flex-wrap items-center justify-between gap-6 rounded-3xl border border-white/10 bg-white/[0.03] p-6 sm:p-8 backdrop-blur">
+      <div
+        className={`flex flex-wrap items-center justify-between gap-6 rounded-3xl border p-6 sm:p-8 backdrop-blur ${
+          isLight
+            ? "border-slate-200 bg-white text-slate-800 shadow-sm"
+            : "border-white/10 bg-white/[0.03] text-white"
+        }`}
+      >
         <div className="flex items-center gap-5">
-          <div className="grid h-16 w-16 place-items-center rounded-2xl bg-amber-400/10 border border-amber-400/30">
-            <span className="font-display text-3xl font-bold text-amber-300">
+          <div
+            className={`grid h-16 w-16 place-items-center rounded-2xl border ${
+              isLight
+                ? "bg-amber-50 border-amber-200"
+                : "bg-amber-400/10 border-amber-400/30"
+            }`}
+          >
+            <span
+              className={`font-display text-3xl font-bold ${
+                isLight ? "text-amber-800" : "text-amber-300"
+              }`}
+            >
               {stats.average > 0 ? stats.average.toFixed(1) : "5.0"}
             </span>
           </div>
@@ -68,7 +86,7 @@ export function ReviewsSection({
                 <Star key={s} filled={s <= Math.round(stats.average)} />
               ))}
             </div>
-            <p className="mt-1 text-xs text-white/60">
+            <p className={`mt-1 text-xs ${isLight ? "text-slate-500" : "text-white/60"}`}>
               {stats.count > 0
                 ? `${t("Basé sur")} ${stats.count} ${t("avis clientes vérifiés")}`
                 : t("Soyez la première à donner votre avis")}
@@ -79,7 +97,11 @@ export function ReviewsSection({
         <button
           type="button"
           onClick={() => setModalOpen(true)}
-          className="flex items-center gap-2 rounded-2xl border border-rose-gold/40 bg-rose-gold/15 px-5 py-3 text-sm font-semibold text-rose-gold transition hover:bg-rose-gold hover:text-plum-950"
+          className={`flex items-center gap-2 rounded-2xl border px-5 py-3 text-sm font-semibold transition cursor-pointer ${
+            isLight
+              ? "border-amber-300 bg-amber-100/70 text-amber-900 hover:bg-amber-200/80 shadow-xs"
+              : "border-rose-gold/40 bg-rose-gold/15 text-rose-gold hover:bg-rose-gold hover:text-plum-950"
+          }`}
         >
           <SparkleIcon width={16} height={16} />
           {t("Laisser un avis")}
@@ -88,7 +110,13 @@ export function ReviewsSection({
 
       {/* Grille des avis clients */}
       {reviews.length === 0 ? (
-        <div className="rounded-3xl border border-dashed border-white/10 p-10 text-center text-sm text-white/40">
+        <div
+          className={`rounded-3xl border border-dashed p-10 text-center text-sm ${
+            isLight
+              ? "border-slate-200 bg-white text-slate-400"
+              : "border-white/10 text-white/40"
+          }`}
+        >
           {t("Aucun avis pour le moment. Votre retour compte beaucoup pour nous !")}
         </div>
       ) : (
@@ -96,7 +124,11 @@ export function ReviewsSection({
           {reviews.map((rev) => (
             <div
               key={rev.id}
-              className="flex flex-col justify-between rounded-3xl border border-white/10 bg-white/[0.025] p-5 shadow-sm transition hover:border-white/20"
+              className={`flex flex-col justify-between rounded-3xl border p-5 shadow-sm transition ${
+                isLight
+                  ? "border-slate-200 bg-white hover:border-slate-300 hover:shadow-md"
+                  : "border-white/10 bg-white/[0.025] hover:border-white/20"
+              }`}
             >
               <div>
                 <div className="flex items-center justify-between">
@@ -105,20 +137,38 @@ export function ReviewsSection({
                       <Star key={s} filled={s <= rev.rating} />
                     ))}
                   </div>
-                  <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
+                  <span
+                    className={`flex items-center gap-1 text-[11px] font-medium ${
+                      isLight ? "text-emerald-600" : "text-emerald-400"
+                    }`}
+                  >
                     <CheckIcon width={12} height={12} />
                     {t("Avis vérifié")}
                   </span>
                 </div>
 
-                <p className="mt-3 text-xs leading-relaxed text-white/80 italic">
+                <p
+                  className={`mt-3 text-xs leading-relaxed italic ${
+                    isLight ? "text-slate-700" : "text-white/80"
+                  }`}
+                >
                   "{rev.comment || t("Prestation parfaite et accueil très chaleureux.")}"
                 </p>
               </div>
 
-              <div className="mt-4 flex items-center justify-between border-t border-white/5 pt-3">
-                <span className="text-xs font-semibold text-white">{rev.authorName}</span>
-                <span className="text-[10px] text-white/40">
+              <div
+                className={`mt-4 flex items-center justify-between border-t pt-3 ${
+                  isLight ? "border-slate-100" : "border-white/5"
+                }`}
+              >
+                <span
+                  className={`text-xs font-semibold ${
+                    isLight ? "text-slate-900" : "text-white"
+                  }`}
+                >
+                  {rev.authorName}
+                </span>
+                <span className={`text-[10px] ${isLight ? "text-slate-400" : "text-white/40"}`}>
                   {new Date(rev.createdAt).toLocaleDateString()}
                 </span>
               </div>
