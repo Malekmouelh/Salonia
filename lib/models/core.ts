@@ -55,6 +55,8 @@ const UserSchema = new Schema(
     // Centres d'affectation (gérant, staff). Remplace la table de liaison du modèle SQL.
     centerIds: [{ type: ObjectId, ref: "Center" }],
     lastLoginAt: Date,
+    // F4 — Compte désactivé (gérant) : connexion et session refusées, absent des listes. Les données et l'historique sont conservés.
+    deactivatedAt: Date,
     // F4 — Fiche employé (facultative : les comptes existants n'ont pas ces champs).
     jobTitle: { type: String, trim: true },
     // Compétences en texte libre, comparées sans casse ni accents (lib/team/skills.ts).

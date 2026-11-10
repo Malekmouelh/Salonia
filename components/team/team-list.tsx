@@ -10,6 +10,9 @@ import type { TeamRoster } from "@/lib/data/team";
 import { WORKING_DAYS } from "@/lib/team/hours";
 import type { TimeOffSummary } from "@/lib/team/timeoff";
 import { HoursModal } from "./hours-modal";
+import { ForecastModal } from "./forecast-modal";
+import { DeactivateManagerModal, ManagerModal } from "./manager-modal";
+import { PerformanceModal } from "./performance-modal";
 import { StaffModal } from "./staff-modal";
 import { TimeOffModal } from "./timeoff-modal";
 
@@ -18,18 +21,32 @@ const MAX_SKILLS_SHOWN = 6;
 // F4 — Liste de l'équipe (lecture seule) : une carte par membre du personnel.
 export function TeamList({ roster, skillSuggestions }: { roster: TeamRoster; skillSuggestions: string[] }) {
   const { t } = useI18n();
-  const { centers, selectedCenterId, members } = roster;
+  const { centers, selectedCenterId, members, creatableRoles } = roster;
   const [adding, setAdding] = useState(false);
   const [editingHoursId, setEditingHoursId] = useState<string | null>(null);
   const editingHours = members.find((m) => m.id === editingHoursId) ?? null;
   const [editingTimeOffId, setEditingTimeOffId] = useState<string | null>(null);
   const editingTimeOff = members.find((m) => m.id === editingTimeOffId) ?? null;
+  const [editingManagerId, setEditingManagerId] = useState<string | null>(null);
+  const editingManager = members.find((m) => m.id === editingManagerId) ?? null;
+  const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
+  const deactivating = members.find((m) => m.id === deactivatingId) ?? null;
+  const [performanceId, setPerformanceId] = useState<string | null>(null);
+  const performance = members.find((m) => m.id === performanceId) ?? null;
+  const [forecasting, setForecasting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   return (
     <div className="mt-6 space-y-4">
       {centers.length > 0 && (
-        <div className="flex justify-end animate-fade-up">
+        <div className="flex flex-wrap justify-end gap-2 animate-fade-up">
+          <button
+            type="button"
+            onClick={() => setForecasting(true)}
+            className="flex items-center gap-2 rounded-2xl border border-champagne/30 px-4 py-2.5 text-sm font-medium text-champagne transition hover:bg-champagne/10"
+          >
+            ✦ {t("Prévision de charge")}
+          </button>
           <button
             type="button"
             onClick={() => setAdding(true)}
@@ -44,12 +61,17 @@ export function TeamList({ roster, skillSuggestions }: { roster: TeamRoster; ski
           centers={centers}
           defaultCenterId={selectedCenterId}
           suggestions={skillSuggestions}
+          roles={creatableRoles}
           onClose={() => setAdding(false)}
           onCreated={setToast}
         />
       )}
       {editingHours && <HoursModal member={editingHours} onClose={() => setEditingHoursId(null)} onSaved={setToast} />}
+      {editingManager && <ManagerModal manager={editingManager} centers={centers} onClose={() => setEditingManagerId(null)} onSaved={setToast} />}
+      {deactivating && <DeactivateManagerModal manager={deactivating} onClose={() => setDeactivatingId(null)} onDone={setToast} />}
       {editingTimeOff && <TimeOffModal member={editingTimeOff} onClose={() => setEditingTimeOffId(null)} onChanged={setToast} />}
+      {forecasting && <ForecastModal centers={centers} defaultCenterId={selectedCenterId} onClose={() => setForecasting(false)} />}
+      {performance && <PerformanceModal member={performance} onClose={() => setPerformanceId(null)} />}
       {toast && <Toast tone="success" onDone={() => setToast(null)}>{t(toast)}</Toast>}
       {centers.length > 1 && (
         <nav aria-label={t("Choisir un centre")} className="-mx-4 overflow-x-auto px-4 pb-1 [scrollbar-width:none] animate-fade-up [animation-delay:0.05s]">
@@ -88,10 +110,17 @@ export function TeamList({ roster, skillSuggestions }: { roster: TeamRoster; ski
                 <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-blush/80 to-champagne/80 text-sm font-semibold text-plum-950">
                   {`${m.firstName[0] ?? ""}${m.lastName[0] ?? ""}`.toUpperCase()}
                 </span>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <h2 className="truncate font-medium text-white">{m.firstName} {m.lastName}</h2>
-                  <p className={`truncate text-xs ${m.jobTitle ? "text-white/55" : "text-white/35"}`}>{m.jobTitle ?? t("Poste non renseigné")}</p>
+                  <p className={`truncate text-xs ${m.jobTitle ? "text-white/55" : "text-white/35"}`}>{m.jobTitle ? t(m.jobTitle) : t("Poste non renseigné")}</p>
                 </div>
+                <span
+                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                    m.role === "MANAGER" ? "bg-champagne/20 text-champagne" : "bg-white/10 text-white/70"
+                  }`}
+                >
+                  {t(m.role === "MANAGER" ? "Gérant" : "Personnel")}
+                </span>
               </div>
 
               <div className="mt-4">
@@ -131,6 +160,7 @@ export function TeamList({ roster, skillSuggestions }: { roster: TeamRoster; ski
 
               <TimeOffLines current={m.timeOff.current} next={m.timeOff.next} />
 
+              {m.role === "STAFF" && (
               <div className="mt-4 border-t border-white/10 pt-3">
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -155,11 +185,39 @@ export function TeamList({ roster, skillSuggestions }: { roster: TeamRoster; ski
                   >
                     <UserIcon width={13} height={13} /> {t("Planning")}
                   </Link>
+                  <button
+                    type="button"
+                    onClick={() => setPerformanceId(m.id)}
+                    className="flex items-center gap-1.5 rounded-xl border border-champagne/30 px-3 py-1.5 text-xs text-champagne transition hover:bg-champagne/10"
+                  >
+                    ✦ {t("Performance")}
+                  </button>
                 </div>
                 {!m.canEditHours && (
                   <p className="mt-1.5 text-[11px] text-white/45">{t("Ce membre travaille aussi dans un centre que vous ne gérez pas : seul le propriétaire peut modifier ses horaires et ses absences.")}</p>
                 )}
               </div>
+              )}
+              {m.canManageAccount && (
+                <div className="mt-4 border-t border-white/10 pt-3">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditingManagerId(m.id)}
+                      className="flex items-center gap-1.5 rounded-xl border border-white/10 px-3 py-1.5 text-xs text-white/70 transition hover:bg-white/5 hover:text-white"
+                    >
+                      <PinIcon width={13} height={13} /> {t("Modifier")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeactivatingId(m.id)}
+                      className="flex items-center gap-1.5 rounded-xl border border-red-400/30 px-3 py-1.5 text-xs text-red-200/90 transition hover:bg-red-500/10"
+                    >
+                      {t("Désactiver")}
+                    </button>
+                  </div>
+                </div>
+              )}
             </article>
           ))}
         </div>

@@ -39,8 +39,8 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser> => {
   const session = await verifySession();
   await connectDB();
   const user = await User.findById(session.userId).lean();
-  // Compte supprimé : la route efface le cookie puis renvoie vers la connexion.
-  if (!user) redirect("/api/auth/expired");
+  // Compte supprimé ou désactivé : la route efface le cookie puis renvoie vers la connexion (même pour une session déjà ouverte).
+  if (!user || user.deactivatedAt) redirect("/api/auth/expired");
 
   const [organization, centers] = user.organizationId
     ? await Promise.all([

@@ -7,17 +7,19 @@ import { Booking } from "@/lib/models/booking";
 import { User } from "@/lib/models/core";
 import { StaffTimeOff } from "@/lib/models/team";
 import { WORKING_DAYS } from "./hours";
-import { CreateStaffSchema, StaffHoursInputSchema, createStaffTimeOffSchema } from "./schemas";
+import { canCreateTeamRole, teamRoleByKey, type TeamRoleKey } from "./roles";
+import { CreateStaffSchema, StaffHoursInputSchema, UpdateManagerSchema, createStaffTimeOffSchema } from "./schemas";
 import { canEditStaffHours, teamCenters } from "./scope";
 
 // F4 — Écritures sur l'équipe. Les droits sont vérifiés ici (et non dans l'action) pour rester testables.
 // Aucune donnée de ce fichier ne doit contenir le mot de passe : ni dans le résultat, ni dans les messages d'erreur.
 
 export type CreateStaffResult =
-  | { ok: true; staff: { id: string; firstName: string; lastName: string } }
+  | { ok: true; staff: { id: string; firstName: string; lastName: string; role: "MANAGER" | "STAFF"; teamRole: TeamRoleKey } }
   | { ok: false; message?: string; errors?: Record<string, string[]> };
 
 const BCRYPT_ROUNDS = 12; // même coût que l'inscription (app/actions/auth.ts)
+const MSG_ROLE_FORBIDDEN = "Seul le propriétaire peut créer un gérant.";
 const MSG_EMAIL_TAKEN = "Cet e-mail est déjà utilisé.";
 const MSG_PHONE_TAKEN = "Ce numéro est déjà utilisé.";
 
@@ -30,7 +32,7 @@ export function duplicateFields(error: unknown): ("email" | "phone")[] | null {
   return fields;
 }
 
-// Crée un compte STAFF dans l'organisation de l'acteur, affecté à des centres qu'il gère.
+// Crée un compte STAFF (ou MANAGER, réservé au propriétaire) dans l'organisation de l'acteur, affecté à des centres qu'il gère.
 export async function createStaffAccount(actor: CurrentUser, input: unknown): Promise<CreateStaffResult> {
   const allowedCenters = teamCenters(actor);
   if (!actor.organization || allowedCenters.length === 0) return { ok: false, message: "Accès refusé." };
@@ -41,6 +43,12 @@ export async function createStaffAccount(actor: CurrentUser, input: unknown): Pr
     return Object.keys(errors).length > 0 ? { ok: false, errors } : { ok: false, message: "Formulaire invalide." };
   }
   const data = parsed.data;
+
+  // Le rôle d'accès vient de la table des rôles prédéfinis, jamais du client. Seul le propriétaire crée un gérant.
+  const teamRole = teamRoleByKey(data.teamRole)!; // la clé est déjà validée par le schéma
+  if (!canCreateTeamRole(actor.role, teamRole)) {
+    return { ok: false, errors: { teamRole: [MSG_ROLE_FORBIDDEN] } };
+  }
 
   // Tous les centres demandés doivent être dans le périmètre de l'acteur : un seul refusé annule la création.
   const allowed = new Set(allowedCenters.map((c) => c.id));
@@ -68,12 +76,15 @@ export async function createStaffAccount(actor: CurrentUser, input: unknown): Pr
       email: data.email,
       phone: data.phone,
       passwordHash,
-      role: "STAFF",
+      role: teamRole.systemRole,
       centerIds: data.centerIds,
-      jobTitle: data.jobTitle,
+      jobTitle: teamRole.label,
       skills: data.skills ?? [],
     });
-    return { ok: true, staff: { id: String(user._id), firstName: user.firstName, lastName: user.lastName } };
+    return {
+      ok: true,
+      staff: { id: String(user._id), firstName: user.firstName, lastName: user.lastName, role: teamRole.systemRole, teamRole: teamRole.key },
+    };
   } catch (error) {
     const dup = duplicateFields(error);
     if (dup) {
@@ -85,6 +96,86 @@ export async function createStaffAccount(actor: CurrentUser, input: unknown): Pr
     // On ne journalise que le type de l'erreur : jamais l'entrée du formulaire.
     console.error("Erreur createStaffAccount :", (error as { name?: string })?.name, (error as { code?: unknown })?.code);
     return { ok: false, message: "Impossible de créer le compte. Réessayez." };
+  }
+}
+
+// ── Gérants : affectation aux centres, modification, désactivation (propriétaire seulement) ──
+
+export type ManagerView = { id: string; firstName: string; lastName: string };
+export type UpdateManagerResult =
+  | { ok: true; changed: boolean; manager: ManagerView }
+  | { ok: false; message?: string; errors?: Record<string, string[]> };
+export type DeactivateManagerResult = { ok: true; manager: ManagerView } | { ok: false; message?: string };
+
+const MSG_MANAGER_NOT_FOUND = "Gérant introuvable.";
+
+// Gérant actif de l'organisation de l'acteur, ou null. Même résultat pour un identifiant invalide, un compte inconnu, d'une autre
+// organisation, qui n'est pas un gérant ou déjà désactivé : on ne révèle pas pourquoi. Réservé au propriétaire.
+async function findManageableManager(actor: CurrentUser, managerId: unknown) {
+  if (actor.role !== "OWNER" || !actor.organization || typeof managerId !== "string" || !OBJECT_ID.test(managerId)) return null;
+  return User.findOne({ _id: managerId, organizationId: actor.organization.id, role: "MANAGER", deactivatedAt: null })
+    .select("firstName lastName centerIds")
+    .lean();
+}
+
+const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x) => b.includes(x));
+
+// Modifie le nom et les centres d'un gérant. Le propriétaire peut affecter un gérant à un ou plusieurs centres de son organisation
+// (au moins un). Sans changement réel : aucune écriture. Ne touche à aucun autre champ (rôle, identifiants, mot de passe).
+export async function updateManager(actor: CurrentUser, managerId: unknown, input: unknown): Promise<UpdateManagerResult> {
+  if (actor.role !== "OWNER" || !actor.organization) return { ok: false, message: "Accès refusé." };
+
+  try {
+    await connectDB();
+    const manager = await findManageableManager(actor, managerId);
+    if (!manager) return { ok: false, message: MSG_MANAGER_NOT_FOUND };
+
+    const parsed = UpdateManagerSchema.safeParse(input);
+    if (!parsed.success) {
+      const errors = parsed.error.flatten().fieldErrors as Record<string, string[]>;
+      return Object.keys(errors).length > 0 ? { ok: false, errors } : { ok: false, message: "Formulaire invalide." };
+    }
+    const data = parsed.data;
+
+    // Les centres doivent appartenir à l'organisation : un seul refusé annule la modification.
+    const orgCenters = new Set(actor.organization.centers.map((c) => c.id));
+    if (!data.centerIds.every((id) => orgCenters.has(id))) {
+      return { ok: false, errors: { centerIds: ["Centre invalide ou non autorisé."] } };
+    }
+
+    const view = { id: String(manager._id), firstName: data.firstName, lastName: data.lastName };
+    const current = (manager.centerIds ?? []).map((c) => String(c).toLowerCase());
+    if (manager.firstName === data.firstName && manager.lastName === data.lastName && sameSet(current, data.centerIds)) {
+      return { ok: true, changed: false, manager: view };
+    }
+
+    await User.updateOne(
+      { _id: managerId, organizationId: actor.organization.id, role: "MANAGER", deactivatedAt: null },
+      { $set: { firstName: data.firstName, lastName: data.lastName, centerIds: data.centerIds } },
+    );
+    return { ok: true, changed: true, manager: view };
+  } catch (error) {
+    console.error("Erreur updateManager :", (error as { name?: string })?.name, (error as { code?: unknown })?.code);
+    return { ok: false, message: "Impossible d'enregistrer les modifications. Réessayez." };
+  }
+}
+
+// Désactive un gérant : connexion et session refusées, absent de la liste. Rien n'est supprimé (données et historique conservés).
+export async function deactivateManager(actor: CurrentUser, managerId: unknown, now: Date = new Date()): Promise<DeactivateManagerResult> {
+  if (actor.role !== "OWNER" || !actor.organization) return { ok: false, message: "Accès refusé." };
+
+  try {
+    await connectDB();
+    const manager = await findManageableManager(actor, managerId);
+    if (!manager) return { ok: false, message: MSG_MANAGER_NOT_FOUND };
+    await User.updateOne(
+      { _id: managerId, organizationId: actor.organization.id, role: "MANAGER", deactivatedAt: null },
+      { $set: { deactivatedAt: now } },
+    );
+    return { ok: true, manager: { id: String(manager._id), firstName: manager.firstName, lastName: manager.lastName } };
+  } catch (error) {
+    console.error("Erreur deactivateManager :", (error as { name?: string })?.name, (error as { code?: unknown })?.code);
+    return { ok: false, message: "Impossible de désactiver le compte. Réessayez." };
   }
 }
 

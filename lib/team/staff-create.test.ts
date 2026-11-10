@@ -61,6 +61,7 @@ const input = (w: World, extra: Record<string, unknown> = {}) => ({
   email: "sara@test.tn",
   phone: "",
   password: PASSWORD,
+  teamRole: "HAIRDRESSER",
   centerIds: [w.tunisId],
   ...extra,
 });
@@ -81,7 +82,7 @@ describe("createStaffAccount : création", () => {
     const r = created(
       await createStaffAccount(
         owner(w),
-        input(w, { email: " Sara@Test.TN ", phone: "+216 22 345 678", jobTitle: " Coloriste ", skills: ["Coloriste", "coloriste", "Brushing"], centerIds: [w.tunisId, w.sousseId] }),
+        input(w, { email: " Sara@Test.TN ", phone: "+216 22 345 678", skills: ["Coloriste", "coloriste", "Brushing"], centerIds: [w.tunisId, w.sousseId] }),
       ),
     );
     const user = await User.findById(r.staff.id).lean();
@@ -89,12 +90,12 @@ describe("createStaffAccount : création", () => {
     assert.equal(String(user?.organizationId), String(w.org._id));
     assert.equal(user?.email, "sara@test.tn");
     assert.equal(user?.phone, "22345678");
-    assert.equal(user?.jobTitle, "Coloriste");
+    assert.equal(user?.jobTitle, "Coiffeur / Coiffeuse"); // poste déduit du rôle prédéfini
     assert.deepEqual(user?.skills, ["Coloriste", "Brushing"]);
     assert.deepEqual((user?.centerIds ?? []).map(String).sort(), [w.tunisId, w.sousseId].sort());
     assert.equal(user?.workingHours, null);
     assert.equal(user?.lastLoginAt, undefined);
-    assert.deepEqual(r.staff, { id: String(user?._id), firstName: "Sara", lastName: "Ben Ali" });
+    assert.deepEqual(r.staff, { id: String(user?._id), firstName: "Sara", lastName: "Ben Ali", role: "STAFF", teamRole: "HAIRDRESSER" });
   });
 
   it("accepte un seul identifiant, sans écrire de valeur vide en base (index uniques « sparse »)", async () => {
@@ -258,12 +259,120 @@ describe("createStaffAccount : escalade de privilèges", () => {
     assert.equal(user?.lastLoginAt, undefined);
   });
 
-  it("un gérant ou un propriétaire ne crée jamais de gérant ni de propriétaire, même en le demandant", async () => {
+  it("ne crée jamais de propriétaire ni de super-admin, même en le demandant par la clé « role »", async () => {
     const w = await world();
-    created(await createStaffAccount(manager(w, w.tunisId), input(w, { role: "MANAGER" })));
-    created(await createStaffAccount(owner(w), input(w, { email: "b@test.tn", role: "OWNER" })));
-    assert.equal(await User.countDocuments({ role: { $in: ["OWNER", "MANAGER"] } }), 0);
+    created(await createStaffAccount(manager(w, w.tunisId), input(w, { role: "OWNER" })));
+    created(await createStaffAccount(owner(w), input(w, { email: "b@test.tn", role: "SUPER_ADMIN" })));
+    assert.equal(await User.countDocuments({ role: { $in: ["OWNER", "SUPER_ADMIN", "MANAGER"] } }), 0);
     assert.equal(await staffCount(), 2);
+  });
+
+  it("un gérant ne peut pas créer de gérant : refus précis, rien n'est créé", async () => {
+    const w = await world();
+    for (const forged of [{}, { role: "MANAGER" }, { jobTitle: "Gérant(e) de centre" }]) {
+      const r = failed(await createStaffAccount(manager(w, w.tunisId), input(w, { teamRole: "MANAGER", ...forged })));
+      assert.deepEqual(r.errors, { teamRole: ["Seul le propriétaire peut créer un gérant."] });
+    }
+    assert.equal(await User.countDocuments({ role: "MANAGER" }), 0);
+    assert.equal(await User.countDocuments(), 0);
+  });
+});
+
+describe("createStaffAccount : rôles prédéfinis", () => {
+  it("le propriétaire crée un gérant : rôle d'accès MANAGER, poste déduit, organisation et centres imposés", async () => {
+    const w = await world();
+    const r = created(await createStaffAccount(owner(w), input(w, { teamRole: "MANAGER", centerIds: [w.sousseId] })));
+    assert.equal(r.staff.role, "MANAGER");
+    assert.equal(r.staff.teamRole, "MANAGER");
+    const user = await User.findById(r.staff.id).lean();
+    assert.equal(user?.role, "MANAGER");
+    assert.equal(user?.jobTitle, "Gérant(e) de centre");
+    assert.equal(String(user?.organizationId), String(w.org._id));
+    assert.deepEqual((user?.centerIds ?? []).map(String), [w.sousseId]);
+    assert.equal(await bcrypt.compare(PASSWORD, user!.passwordHash), true);
+  });
+
+  it("chaque rôle de personnel crée un STAFF avec son poste ; le poste libre envoyé par le client est ignoré", async () => {
+    const w = await world();
+    const expected = {
+      HAIRDRESSER: "Coiffeur / Coiffeuse",
+      ESTHETICIAN: "Esthéticienne",
+      MAKEUP_ARTIST: "Maquilleuse",
+      NAIL_TECHNICIAN: "Prothésiste ongulaire",
+      MASSEUSE: "Masseuse",
+      RECEPTIONIST: "Réceptionniste",
+    };
+    let i = 0;
+    for (const [teamRole, label] of Object.entries(expected)) {
+      const r = created(await createStaffAccount(owner(w), input(w, { teamRole, jobTitle: "Directeur général", email: `p${i++}@test.tn` })));
+      const user = await User.findById(r.staff.id).lean();
+      assert.equal(user?.role, "STAFF", teamRole);
+      assert.equal(user?.jobTitle, label, teamRole);
+    }
+  });
+
+  it("refuse un rôle absent ou inconnu, sans rien créer", async () => {
+    const w = await world();
+    for (const teamRole of [undefined, "", "OWNER", "CHEF"]) {
+      const r = failed(await createStaffAccount(owner(w), input(w, { teamRole })));
+      assert.deepEqual(r.errors?.teamRole, ["Choisissez un rôle."], String(teamRole));
+    }
+    assert.equal(await User.countDocuments(), 0);
+  });
+
+  it("le propriétaire doit aussi donner au moins un centre à un gérant, pris dans son organisation", async () => {
+    const w = await world();
+    const none = failed(await createStaffAccount(owner(w), input(w, { teamRole: "MANAGER", centerIds: [] })));
+    assert.ok(none.errors?.centerIds);
+    const foreign = failed(await createStaffAccount(owner(w), input(w, { teamRole: "MANAGER", centerIds: ["64b7f0c2a1b2c3d4e5f60718"] })));
+    assert.deepEqual(foreign.errors, { centerIds: ["Centre invalide ou non autorisé."] });
+    assert.equal(await User.countDocuments(), 0);
+  });
+
+  it("le gérant crée du personnel dans ses centres seulement, quel que soit le rôle de personnel", async () => {
+    const w = await world();
+    created(await createStaffAccount(manager(w, w.tunisId), input(w, { teamRole: "RECEPTIONIST" })));
+    const out = failed(await createStaffAccount(manager(w, w.tunisId), input(w, { email: "x@test.tn", teamRole: "MASSEUSE", centerIds: [w.sousseId] })));
+    assert.deepEqual(out.errors, { centerIds: ["Centre invalide ou non autorisé."] });
+    assert.equal(await staffCount(), 1);
+  });
+
+  it("un gérant créé n'est pas un praticien : absent de getPractitioners, donc non réservable", async () => {
+    const w = await world();
+    const m = created(await createStaffAccount(owner(w), input(w, { teamRole: "MANAGER" })));
+    assert.deepEqual(await getPractitioners(String(w.org._id), w.tunisId), []);
+    const s = created(await createStaffAccount(owner(w), input(w, { email: "s@test.tn" })));
+    assert.deepEqual((await getPractitioners(String(w.org._id), w.tunisId)).map((p) => p.id), [s.staff.id]);
+    assert.notEqual(m.staff.id, s.staff.id);
+  });
+
+  it("le gérant créé se voit dans la liste avec son rôle, mais sans horaires ni absences modifiables", async () => {
+    const w = await world();
+    const m = created(await createStaffAccount(owner(w), input(w, { teamRole: "MANAGER", centerIds: [w.tunisId] })));
+    created(await createStaffAccount(owner(w), input(w, { email: "s@test.tn" })));
+    const roster = await getTeamRoster(owner(w));
+    const card = roster.members.find((x) => x.id === m.staff.id)!;
+    assert.equal(card.role, "MANAGER");
+    assert.equal(card.jobTitle, "Gérant(e) de centre");
+    assert.equal(card.canEditHours, false);
+    assert.equal(roster.members.find((x) => x.id !== m.staff.id)!.role, "STAFF");
+  });
+
+  it("rôles proposés : tous pour le propriétaire, sans « gérant » pour le gérant, rien pour les autres", async () => {
+    const w = await world();
+    const keys = async (v: CurrentUser) => (await getTeamRoster(v)).creatableRoles.map((r) => r.key);
+    assert.deepEqual(await keys(owner(w)), ["MANAGER", "HAIRDRESSER", "ESTHETICIAN", "MAKEUP_ARTIST", "NAIL_TECHNICIAN", "MASSEUSE", "RECEPTIONIST"]);
+    assert.deepEqual(await keys(manager(w, w.tunisId)), ["HAIRDRESSER", "ESTHETICIAN", "MAKEUP_ARTIST", "NAIL_TECHNICIAN", "MASSEUSE", "RECEPTIONIST"]);
+    assert.deepEqual(await keys(viewer(w, "STAFF", [w.tunisId])), []);
+  });
+
+  it("un gérant ne voit pas les gérants des autres centres ; le mot de passe n'est jamais renvoyé", async () => {
+    const w = await world();
+    const a = created(await createStaffAccount(owner(w), input(w, { teamRole: "MANAGER", email: "m1@test.tn", centerIds: [w.tunisId] })));
+    created(await createStaffAccount(owner(w), input(w, { teamRole: "MANAGER", email: "m2@test.tn", centerIds: [w.sousseId] })));
+    const seen = await getTeamRoster(manager(w, w.tunisId));
+    assert.deepEqual(seen.members.map((m) => m.id), [a.staff.id]);
+    assert.ok(!JSON.stringify(seen).includes(PASSWORD));
   });
 });
 

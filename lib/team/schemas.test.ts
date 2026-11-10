@@ -167,7 +167,7 @@ describe("schéma de la fiche employé", () => {
 
 describe("schéma de création d'un compte STAFF", () => {
   const CENTER = "64b7f0c2a1b2c3d4e5f60718";
-  const valid = { firstName: "Sara", lastName: "Ben Ali", email: "Sara@Test.tn", phone: "", password: "Temp1234", centerIds: [CENTER] };
+  const valid = { firstName: "Sara", lastName: "Ben Ali", email: "Sara@Test.tn", phone: "", password: "Temp1234", teamRole: "HAIRDRESSER", centerIds: [CENTER] };
 
   it("accepte une demande valide et normalise e-mail, téléphone et centres", () => {
     const r = CreateStaffSchema.parse({ ...valid, email: " Sara@Test.TN ", phone: "+216 22 345 678", centerIds: [CENTER, CENTER.toUpperCase()] });
@@ -228,13 +228,25 @@ describe("schéma de création d'un compte STAFF", () => {
 
   it("ignore toute clé inconnue : rôle, organisation, hash, identifiant interne", () => {
     const r = CreateStaffSchema.parse({ ...valid, role: "OWNER", organizationId: "x", passwordHash: "y", _id: "z", lastLoginAt: "2020-01-01" });
-    assert.deepEqual(Object.keys(r).sort(), ["centerIds", "email", "firstName", "lastName", "password", "phone"]);
+    assert.deepEqual(Object.keys(r).sort(), ["centerIds", "email", "firstName", "lastName", "password", "phone", "teamRole"]);
   });
 
-  it("normalise poste et compétences facultatifs", () => {
-    const r = CreateStaffSchema.parse({ ...valid, jobTitle: "  Coloriste ", skills: ["Coloriste", "coloriste", " "] });
-    assert.equal(r.jobTitle, "Coloriste");
+  it("normalise les compétences facultatives ; un poste libre envoyé par le client est ignoré", () => {
+    const r = CreateStaffSchema.parse({ ...valid, jobTitle: "  Directeur ", skills: ["Coloriste", "coloriste", " "] });
+    assert.equal("jobTitle" in r, false);
     assert.deepEqual(r.skills, ["Coloriste"]);
+  });
+
+  it("exige un rôle prédéfini : absent, vide ou inconnu est refusé (un rôle d'accès comme OWNER aussi)", () => {
+    for (const teamRole of [undefined, "", "OWNER", "SUPER_ADMIN", "CLIENT", "hairdresser", "Coiffeuse"]) {
+      assert.equal(CreateStaffSchema.safeParse({ ...valid, teamRole }).success, false, String(teamRole));
+    }
+    const r = CreateStaffSchema.safeParse({ ...valid, teamRole: undefined });
+    assert.equal(r.success, false);
+    if (!r.success) assert.deepEqual(r.error.flatten().fieldErrors.teamRole, ["Choisissez un rôle."]);
+    for (const teamRole of ["MANAGER", "HAIRDRESSER", "ESTHETICIAN", "MAKEUP_ARTIST", "NAIL_TECHNICIAN", "MASSEUSE", "RECEPTIONIST"]) {
+      assert.equal(CreateStaffSchema.safeParse({ ...valid, teamRole }).success, true, teamRole);
+    }
   });
 
   it("les messages d'erreur ne contiennent jamais le mot de passe saisi", () => {

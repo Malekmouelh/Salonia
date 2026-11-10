@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { suggestPractitionerAction } from "@/app/actions/team";
 import { createStaffBooking, findCustomers, type ActionResult } from "@/app/actions/bookings";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Modal } from "@/components/ui/modal";
 import { fmtDuration, fmtMoney } from "@/lib/booking/format";
 import type { CalendarData, PackOption, ServiceOption } from "@/lib/booking/types";
+import type { PractitionerSuggestion } from "@/lib/team/assignment-service";
 import { ActionButton } from "./booking-drawer";
 import { inputClass, labelClass } from "./status";
 
@@ -40,6 +42,10 @@ export function BookingForm({
   const [notes, setNotes] = useState("");
   const [force, setForce] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Suggestion de praticien par l'IA (propriétaire et gérant) : elle propose, l'utilisateur choisit.
+  const [suggest, setSuggest] = useState<{ source: "ai" | "offline"; blocked: number; items: PractitionerSuggestion[] } | null>(null);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
+  const [suggesting, startSuggest] = useTransition();
 
   // Recherche du client par nom ou téléphone (à partir de 2 caractères).
   useEffect(() => {
@@ -84,6 +90,17 @@ export function BookingForm({
     });
   }
 
+  const canSuggest = data.canManage && data.practitioners.length > 1 && !packId && selected.length > 0 && !!day && !!time;
+  function runSuggest() {
+    setSuggestError(null);
+    setSuggest(null);
+    startSuggest(async () => {
+      const r = await suggestPractitionerAction({ centerId: data.center.id, day, time, serviceIds: selected }, lang);
+      if (r.ok) setSuggest({ source: r.source, blocked: r.blocked, items: r.suggestions });
+      else setSuggestError(r.message);
+    });
+  }
+
   const toggle = (id: string) => {
     setPackId(null);
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -110,6 +127,38 @@ export function BookingForm({
             </select>
           </label>
         </div>
+
+        {canSuggest && (
+          <div className="rounded-2xl border border-champagne/25 bg-champagne/5 p-3">
+            <button type="button" onClick={runSuggest} disabled={suggesting} className="text-sm font-medium text-champagne disabled:cursor-wait disabled:opacity-60">
+              ✦ {suggesting ? t("Analyse en cours…") : t("Suggérer un praticien")}
+            </button>
+            {suggestError && <p role="alert" className="mt-2 text-xs text-red-300">{t(suggestError)}</p>}
+            {suggest && (
+              <div className="mt-2 space-y-1.5">
+                {suggest.items.length === 0 ? (
+                  <p className="text-xs text-white/60">{t("Aucun praticien disponible sur ce créneau.")}</p>
+                ) : (
+                  suggest.items.map((s, i) => (
+                    <div key={s.staffId} className="flex items-start justify-between gap-3 rounded-xl bg-white/5 px-3 py-2">
+                      <div className="min-w-0 text-xs text-white/75">
+                        <p className="text-sm text-white">{i === 0 ? "★ " : ""}{s.name} <span className="text-white/40" dir="ltr">{s.score}/100</span></p>
+                        <p>{s.reason}</p>
+                      </div>
+                      <button type="button" onClick={() => setStaffId(s.staffId)} className="shrink-0 rounded-lg border border-white/15 px-2.5 py-1 text-xs text-white/80 hover:bg-white/10">
+                        {staffId === s.staffId ? t("Choisi") : t("Choisir")}
+                      </button>
+                    </div>
+                  ))
+                )}
+                <p className="text-[11px] text-white/40">
+                  {t(suggest.source === "ai" ? "Proposé par l'IA (Gemini) : à vous de décider." : "Classement calculé sans IA : à vous de décider.")}
+                  {suggest.blocked > 0 && ` ${suggest.blocked} ${t("praticien(s) indisponible(s) sur ce créneau.")}`}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Client */}
         <div>

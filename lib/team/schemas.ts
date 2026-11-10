@@ -3,6 +3,7 @@ import { minutesToHhmm, parseRange } from "@/lib/booking/time";
 import { PasswordSchema, isPhone, normalizePhone } from "@/lib/definitions";
 import { TIMEOFF_KINDS } from "@/lib/enums";
 import { RANGE_FORMAT, WORKING_DAYS, type WorkingDay } from "./hours";
+import { TEAM_ROLE_KEYS } from "./roles";
 import { MAX_SKILL_LENGTH, MAX_SKILLS, normalizeSkills } from "./skills";
 import { MAX_TIMEOFF_REASON, checkTimeOffBounds, computeTimeOffRange, type TimeOffRange } from "./timeoff";
 
@@ -62,7 +63,7 @@ export const StaffProfileFieldsSchema = z.object({
 
 export type StaffProfileFields = z.output<typeof StaffProfileFieldsSchema>;
 
-// ── Création d'un compte STAFF par le salon (F4, étape 3) ──
+// ── Création d'un compte STAFF ou MANAGER par le salon (F4, étape 3 ; rôles prédéfinis ajoutés ensuite) ──
 // Le rôle, l'organisation, le hash et les identifiants internes ne figurent pas ici : toute clé inconnue
 // envoyée par le formulaire est ignorée, et le serveur impose STAFF et l'organisation de l'acteur.
 
@@ -70,6 +71,13 @@ export const MAX_PASSWORD_BYTES = 72; // bcrypt ne lit que les 72 premiers octet
 const OBJECT_ID = /^[0-9a-f]{24}$/i;
 
 const NameSchema = (message: string) => z.string().trim().min(2, message).max(60, "60 caractères maximum.");
+
+// Centres d'affectation : au moins un, identifiants bien formés, sans doublon.
+const CenterIdsSchema = z
+  .array(z.string().refine((v) => OBJECT_ID.test(v), "Centre invalide."))
+  .min(1, "Choisissez au moins un centre.")
+  .max(50)
+  .transform((ids) => [...new Set(ids.map((id) => id.toLowerCase()))]);
 
 // Mot de passe temporaire : règles existantes (8 caractères, une lettre, un chiffre) + limite bcrypt en octets.
 // Jamais « trimé » : les espaces font partie du mot de passe.
@@ -97,17 +105,24 @@ export const CreateStaffSchema = z
       .transform((v) => (v ? normalizePhone(v) : undefined))
       .optional(),
     password: TemporaryPasswordSchema,
-    jobTitle: JobTitleSchema.optional(),
+    // Rôle prédéfini (voir ./roles) : le rôle d'accès et le poste en sont déduits par le serveur.
+    teamRole: z.enum(TEAM_ROLE_KEYS, { error: "Choisissez un rôle." }),
     skills: SkillsSchema.optional(),
-    centerIds: z
-      .array(z.string().refine((v) => OBJECT_ID.test(v), "Centre invalide."))
-      .min(1, "Choisissez au moins un centre.")
-      .max(50)
-      .transform((ids) => [...new Set(ids.map((id) => id.toLowerCase()))]),
+    centerIds: CenterIdsSchema,
   })
   .refine((d) => Boolean(d.email || d.phone), { path: ["email"], message: "Renseignez un e-mail ou un numéro de téléphone." });
 
 export type CreateStaffInput = z.output<typeof CreateStaffSchema>;
+
+// Modification d'un gérant par le propriétaire : nom et centres d'affectation. Rôle, organisation, e-mail, téléphone et mot de
+// passe ne sont pas modifiables ici ; toute autre clé envoyée est ignorée.
+export const UpdateManagerSchema = z.object({
+  firstName: NameSchema("Prénom trop court."),
+  lastName: NameSchema("Nom trop court."),
+  centerIds: CenterIdsSchema,
+});
+
+export type UpdateManagerInput = z.output<typeof UpdateManagerSchema>;
 
 // ── Congés et absences (F4, étape 5) ──
 // Entrée du formulaire : le type, le mode (journées complètes ou plage horaire), les dates en heure de Tunis et un motif.
