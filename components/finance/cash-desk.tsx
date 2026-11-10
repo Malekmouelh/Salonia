@@ -383,16 +383,44 @@ function BookingSection({
 // Saisie des moyens de paiement (paiement fractionné : jusqu'à 4 lignes).
 // Reçoit la liste des règlements (`tenders`), sa fonction de modification (`setTenders`) et le montant
 // à régler (`due`). Chaque ligne = un moyen + un montant (+ une référence pour carte/mobile).
-function TenderEditor({ tenders, setTenders, due }: { tenders: Tender[]; setTenders: (t: Tender[]) => void; due: number }) {
+// allowSplit = false : un seul règlement possible (acompte), pas de bouton « Fractionner ».
+function TenderEditor({ tenders, setTenders, due, allowSplit = true }: { tenders: Tender[]; setTenders: (t: Tender[]) => void; due: number; allowSplit?: boolean }) {
   const { t, lang } = useI18n();
-  const [received, setReceived] = useState(""); // espèces remises par le client (pour calculer la monnaie)
-  // Modifie la ligne n° i en fusionnant `patch` (les autres lignes sont inchangées).
-  const update = (i: number, patch: Partial<Tender>) => setTenders(tenders.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  // Modifie la ligne n° i en fusionnant `patch`. Si c'est un MONTANT et qu'il y a plusieurs lignes, une autre
+  // ligne s'ajuste pour que le total reste égal au reste à payer (de préférence la ligne Espèces, sinon la
+  // dernière) : on change la carte à 20 DT → les espèces passent à 15 DT, sans calcul de tête.
+  const update = (i: number, patch: Partial<Tender>) => {
+    const next = tenders.map((x, j) => (j === i ? { ...x, ...patch } : x));
+    if (patch.amountTnd !== undefined && next.length > 1) {
+      const cashIndex = next.findIndex((x, j) => j !== i && x.method === "CASH");
+      const k = cashIndex >= 0 ? cashIndex : i === next.length - 1 ? 0 : next.length - 1;
+      const others = sumTnd(next.filter((_, j) => j !== k).map((x) => Number(x.amountTnd) || 0));
+      next[k] = { ...next[k], amountTnd: String(Math.max(0, roundTnd(due - others))) };
+    }
+    setTenders(next);
+  };
+  // « Fractionner » : ajoute une ligne par carte et propose une répartition égale en dinars entiers
+  // (35 DT en 2 → 18 + 17 ; l'arrondi va à la première ligne). Chaque montant reste modifiable.
+  const split = () => {
+    const count = tenders.length + 1;
+    const share = Math.floor(due / count);
+    const first = roundTnd(due - share * (count - 1));
+    const methods = [...tenders.map((x) => x.method), tenders.some((x) => x.method === "CARD") ? "MOBILE" : "CARD"] as PaymentMethod[];
+    setTenders(methods.map((method, j) => ({ method, amountTnd: String(j === 0 ? first : share), reference: tenders[j]?.reference ?? "" })));
+  };
   const cash = tenders.find((x) => x.method === "CASH");
-  // Monnaie à rendre = espèces reçues − part payée en espèces.
-  const change = cash && received ? roundTnd(Number(received) - Number(cash.amountTnd || 0)) : null;
   // Total saisi (pour le comparer au montant dû).
   const total = sumTnd(tenders.map((x) => Number(x.amountTnd) || 0));
+  // Part à payer EN ESPÈCES = reste à payer − ce qui est payé autrement (carte, mobile…).
+  // C'est elle qui compte pour la monnaie : 35 DT dont 20 par carte → 15 DT en espèces.
+  const nonCash = sumTnd(tenders.filter((x) => x.method !== "CASH").map((x) => Number(x.amountTnd) || 0));
+  const cashDue = Math.max(0, roundTnd(due - nonCash));
+  // « Espèces reçues » : prérempli avec la part en espèces ; on y tape le billet donné par le client.
+  // La saisie est oubliée dès que la part en espèces change (le champ se recale sur la nouvelle valeur).
+  const [typed, setTyped] = useState<{ cashDue: number; value: string } | null>(null);
+  const received = typed && typed.cashDue === cashDue ? typed.value : String(cashDue);
+  // Monnaie à rendre = espèces reçues − part en espèces (négatif = il manque de l'argent).
+  const change = cash && received !== "" ? roundTnd(Number(received) - cashDue) : null;
   return (
     <div className="space-y-2">
       {tenders.map((tender, i) => (
@@ -419,11 +447,11 @@ function TenderEditor({ tenders, setTenders, due }: { tenders: Tender[]; setTend
         </div>
       ))}
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-        {/* « Fractionner » : ajoute une ligne (par carte) préremplie avec ce qu'il reste à répartir. */}
-        {tenders.length < 4 ? (
+        {/* « Fractionner » : ajoute une ligne (par carte) et répartit le reste à payer entre les lignes. */}
+        {allowSplit && tenders.length < 4 ? (
           <button
             type="button"
-            onClick={() => setTenders([...tenders, { method: "CARD", amountTnd: String(Math.max(0, roundTnd(due - total))), reference: "" }])}
+            onClick={split}
             className="text-rose-gold hover:underline"
           >
             + {t("Fractionner le paiement")}
@@ -440,10 +468,15 @@ function TenderEditor({ tenders, setTenders, due }: { tenders: Tender[]; setTend
       {cash && (
         <div className="flex items-center gap-2 rounded-xl bg-white/[0.03] px-3 py-2 text-xs text-white/60">
           <span>{t("Espèces reçues")}</span>
-          <input inputMode="decimal" value={received} onChange={(e) => setReceived(e.target.value.replace(",", "."))} className={`${inputClass} w-24 py-1.5`} aria-label={t("Espèces reçues")} />
+          <input inputMode="decimal" value={received} onChange={(e) => setTyped({ cashDue, value: e.target.value.replace(",", ".") })} className={`${inputClass} w-24 py-1.5`} aria-label={t("Espèces reçues")} />
           {change !== null && change >= 0 && (
             <span className="ms-auto font-semibold text-champagne">
               {t("À rendre")} : {fmtMoney(change, lang)}
+            </span>
+          )}
+          {change !== null && change < 0 && (
+            <span className="ms-auto font-semibold text-red-300">
+              {t("Manque")} : {fmtMoney(-change, lang)}
             </span>
           )}
         </div>
@@ -532,7 +565,9 @@ function CheckoutModal({ booking, canDiscount, onClose, onResult }: { booking: C
               onChange={(e) => {
                 const v = e.target.value.replace(",", ".");
                 setDiscount(v);
-                setTenders([{ ...tenders[0], amountTnd: String(Math.max(0, roundTnd(booking.dueTnd - (Number(v) || 0)))) }, ...tenders.slice(1)]);
+                // Première ligne = nouveau reste à payer − les autres lignes (le total reste juste en paiement fractionné).
+                const others = sumTnd(tenders.slice(1).map((x) => Number(x.amountTnd) || 0));
+                setTenders([{ ...tenders[0], amountTnd: String(Math.max(0, roundTnd(booking.dueTnd - (Number(v) || 0) - others))) }, ...tenders.slice(1)]);
               }}
               placeholder="0"
               className={inputClass}
@@ -575,7 +610,7 @@ function DepositModal({ booking, depositPercent, onClose, onResult }: { booking:
         <div>
           <p className={labelClass}>{t("Montant de l'acompte")}</p>
           {/* On limite l'éditeur à une seule ligne (pas de paiement fractionné pour un acompte). */}
-          <TenderEditor tenders={tenders.slice(0, 1)} setTenders={(list) => setTenders(list.slice(0, 1))} due={Number(tenders[0].amountTnd) || 0} />
+          <TenderEditor tenders={tenders.slice(0, 1)} setTenders={(list) => setTenders(list.slice(0, 1))} due={Number(tenders[0].amountTnd) || 0} allowSplit={false} />
         </div>
         <Submit pending={pending}>{t("Encaisser l'acompte")}</Submit>
       </form>
